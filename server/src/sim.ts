@@ -25,6 +25,10 @@ export interface SimEvent {
   s?: number;
   id?: string;
   by?: string;
+  /** لنوع الأداة في حدث item */
+  itemType?: ItemId;
+  /** هل كانت الضربة مشحونة (×2) */
+  charged?: boolean;
 }
 
 export interface SimPlayer {
@@ -267,6 +271,8 @@ export class ArenaSim {
     if (p.itemActiveUntil > this.t) return; // مفعّلة بالفعل
     const item = p.item;
     p.item = null;
+    // الأداة المفعّلة هي المرجع (كان يعتمد على lastItem من giveItems فقط)
+    p.lastItem = item;
     switch (item) {
       case 'charge':
         p.itemActiveUntil = this.t + config.items.charge.duration;
@@ -286,7 +292,7 @@ export class ArenaSim {
         p.onGround = false;
         break;
     }
-    this.emit({ type: 'item', id: p.id, x: p.x, z: p.z });
+    this.emit({ type: 'item', id: p.id, itemType: item, x: p.x, z: p.z });
   }
 
   private isShielded(p: SimPlayer): boolean {
@@ -436,6 +442,7 @@ export class ArenaSim {
           sx: number,
           sz: number
         ) => {
+          let chargedHit = false;
           const last = attacker.touchAt.get(victim.id) ?? -999;
           if (now - last < 0.25) return;
           attacker.touchAt.set(victim.id, now);
@@ -443,6 +450,7 @@ export class ArenaSim {
           let push = config.dash.bonus;
           if (attacker.itemActiveUntil > now && attacker.lastItem === 'charge' && !attacker.chargeUsed) {
             push *= config.items.charge.multiplier;
+            chargedHit = true;
             attacker.chargeUsed = true;
             attacker.itemActiveUntil = 0;
           }
@@ -455,7 +463,15 @@ export class ArenaSim {
             victim.lastHitAt = now;
           }
           attacker.dashHitUsed = true;
-          this.emit({ type: 'hit', x: victim.x, z: victim.z, s: Math.min(1, push / 18), by: attacker.id, id: victim.id });
+          this.emit({
+            type: 'hit',
+            x: victim.x,
+            z: victim.z,
+            s: Math.min(1, push / 18),
+            by: attacker.id,
+            id: victim.id,
+            charged: chargedHit,
+          });
         };
 
         // اندفاعان في نفس اللحظة = تصادم متكافئ (بلا أفضلية لترتيب المصفوفة)

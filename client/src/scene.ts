@@ -9,6 +9,13 @@ interface PlayerView {
   eyes: THREE.Group;
   label: THREE.Sprite;
   ring: THREE.Mesh;
+  shadow: THREE.Mesh; // ظل ثابت على البلاطة
+  aura: THREE.Mesh; // هالة الضربة
+  bubble: THREE.Mesh; // فقاعة الدرع
+  anchorRing: THREE.Mesh; // حلقة المرساة
+  anchorLock: THREE.Sprite; // رمز قفل المرساة
+  trailAcc: number;
+  airborne: boolean;
   lastX: number;
   lastY: number;
   lastZ: number;
@@ -63,6 +70,7 @@ export class ArenaScene {
     this.buildLights();
     this.buildArena();
     this.buildDust();
+    this.buildSparks();
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -108,6 +116,71 @@ export class ArenaScene {
     glow.rotation.x = -Math.PI / 2;
     glow.position.y = -4.5;
     this.containers.add(glow);
+  }
+
+  private sparkPos: Float32Array = new Float32Array(0);
+  private sparkVel: Float32Array = new Float32Array(0);
+  private sparkLife: Float32Array = new Float32Array(0);
+  private sparks!: THREE.Points;
+
+  /** شرر أصفر: أثر الضربة المشحونة، انفجار الإصابة، وأثر التفعيل */
+  private buildSparks() {
+    const N = 260;
+    this.sparkPos = new Float32Array(N * 3).fill(-999);
+    this.sparkVel = new Float32Array(N * 3);
+    this.sparkLife = new Float32Array(N);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.sparkPos, 3));
+    const mat = new THREE.PointsMaterial({
+      color: 0xffd23f,
+      size: 0.5,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.sparks = new THREE.Points(geo, mat);
+    this.sparks.frustumCulled = false;
+    this.containers.add(this.sparks);
+  }
+
+  private emitSparks(x: number, y: number, z: number, n: number, speed: number, up = 1) {
+    let spawned = 0;
+    for (let i = 0; i < this.sparkLife.length && spawned < n; i++) {
+      if (this.sparkLife[i] > 0) continue;
+      this.sparkLife[i] = 0.35 + Math.random() * 0.45;
+      this.sparkPos[i * 3] = x + (Math.random() - 0.5) * 0.9;
+      this.sparkPos[i * 3 + 1] = y + Math.random() * 0.6;
+      this.sparkPos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.9;
+      const a = Math.random() * Math.PI * 2;
+      const sp = speed * (0.4 + Math.random() * 0.6);
+      this.sparkVel[i * 3] = Math.cos(a) * sp;
+      this.sparkVel[i * 3 + 1] = (0.5 + Math.random()) * up * 4;
+      this.sparkVel[i * 3 + 2] = Math.sin(a) * sp;
+      spawned++;
+    }
+  }
+
+  private updateSparks(dt: number) {
+    const pos = this.sparkPos;
+    for (let i = 0; i < this.sparkLife.length; i++) {
+      if (this.sparkLife[i] <= 0) continue;
+      this.sparkLife[i] -= dt;
+      if (this.sparkLife[i] <= 0) {
+        pos[i * 3 + 1] = -999;
+        continue;
+      }
+      pos[i * 3] += this.sparkVel[i * 3] * dt;
+      pos[i * 3 + 1] += this.sparkVel[i * 3 + 1] * dt;
+      pos[i * 3 + 2] += this.sparkVel[i * 3 + 2] * dt;
+      this.sparkVel[i * 3 + 1] -= 14 * dt;
+    }
+    (this.sparks.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  /** انفجار أثر عند الإصابة أو التفعيل */
+  burst(x: number, z: number, n = 16) {
+    this.emitSparks(x, 0.9, z, n, 6);
   }
 
   private buildDust() {
@@ -211,6 +284,57 @@ export class ArenaScene {
     label.position.y = r * 2.6;
     group.add(label);
 
+    // ظل يبقى على البلاطة (لا يرتفع مع القفز)
+    const shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(r * 0.95, 20),
+      new THREE.MeshBasicMaterial({ color: 0x03080f, transparent: true, opacity: 0.32, depthWrite: false })
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    group.add(shadow);
+
+    // هالة الضربة (صفراء مضيئة)
+    const aura = new THREE.Mesh(
+      new THREE.SphereGeometry(r * 1.32, 16, 12),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd23f,
+        transparent: true,
+        opacity: 0.26,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    aura.position.y = r;
+    aura.visible = false;
+    group.add(aura);
+
+    // فقاعة الدرع (زرقاء شفافة)
+    const bubble = new THREE.Mesh(
+      new THREE.SphereGeometry(r * 1.55, 18, 14),
+      new THREE.MeshBasicMaterial({
+        color: 0x59c8ff,
+        transparent: true,
+        opacity: 0.22,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    bubble.position.y = r;
+    bubble.visible = false;
+    group.add(bubble);
+
+    // حلقة المرساة على البلاطة
+    const anchorRing = new THREE.Mesh(
+      new THREE.RingGeometry(r * 1.45, r * 1.95, 28),
+      new THREE.MeshBasicMaterial({ color: 0x8bf07a, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
+    );
+    anchorRing.rotation.x = -Math.PI / 2;
+    anchorRing.visible = false;
+    group.add(anchorRing);
+
+    const anchorLock = makeLockSprite();
+    anchorLock.visible = false;
+    group.add(anchorLock);
+
     this.containers.add(group);
     const view: PlayerView = {
       group,
@@ -218,6 +342,13 @@ export class ArenaScene {
       eyes,
       label,
       ring,
+      shadow,
+      aura,
+      bubble,
+      anchorRing,
+      anchorLock,
+      trailAcc: 0,
+      airborne: false,
       lastX: 0,
       lastY: 0,
       lastZ: 0,
@@ -262,6 +393,7 @@ export class ArenaScene {
     this.syncPlayers(net, interp, dt);
     this.syncTiles(net.snaps, now);
     this.updateDust(dt);
+    this.updateSparks(dt);
     this.applyShake(now);
 
     this.renderer.render(this.scene, this.camera);
@@ -330,6 +462,9 @@ export class ArenaScene {
   ) {
     const seen = new Set<string>();
     const meta = new Map(net.state.players.map((p) => [p.id, p]));
+    const latest = net.snaps.length ? net.snaps[net.snaps.length - 1] : null;
+    const states = new Map<string, SnapPlayer>();
+    for (const sp of latest?.players ?? []) states.set(sp.id, sp);
     let idx = 0;
     for (const [id, pos] of interp) {
       seen.add(id);
@@ -365,6 +500,57 @@ export class ArenaScene {
       }
       const me = net.state.youId === id;
       (view.ring.material as THREE.MeshBasicMaterial).opacity = me ? 0.85 : 0.35;
+
+      // ---------------- أدوات ----------------
+      const st = states.get(id);
+      const ia = st?.ia ?? null;
+      const at = st?.at ?? -1;
+      const alive = pos.a !== 0;
+      const height = Math.max(0, target.y);
+
+      // الظل: يبقى على مستوى البلاطة ويضعف مع الارتفاع
+      view.shadow.visible = alive;
+      view.shadow.position.y = 0.025 - height;
+      view.shadow.scale.setScalar(Math.max(0.5, 1 + height * 0.13));
+      (view.shadow.material as THREE.MeshBasicMaterial).opacity = Math.max(0.06, 0.32 - height * 0.05);
+
+      // هالة الضربة + أثر خلف الكرة
+      const auraOn = alive && ia === 'charge';
+      view.aura.visible = auraOn;
+      if (auraOn) {
+        view.aura.scale.setScalar(1 + Math.sin(performance.now() * 0.009) * 0.07);
+        view.trailAcc += dt;
+        if (view.trailAcc > 0.045) {
+          view.trailAcc = 0;
+          this.emitSparks(target.x, height + config.physics.radius * 0.7, target.z, 2, 1.8, 0.25);
+        }
+      } else {
+        view.trailAcc = 0;
+      }
+
+      // فقاعة الدرع
+      view.bubble.visible = alive && ia === 'shield';
+      if (view.bubble.visible) {
+        view.bubble.scale.setScalar(1 + Math.sin(performance.now() * 0.006) * 0.05);
+      }
+
+      // مرساة: حلقة وقفل على البلاطة + علامة تحت الكرة
+      const anchored = alive && at >= 0;
+      view.anchorRing.visible = anchored;
+      view.anchorLock.visible = anchored;
+      if (anchored) {
+        view.anchorRing.position.y = 0.03 - height;
+        view.anchorRing.scale.setScalar(1 + Math.sin(performance.now() * 0.005) * 0.06);
+        view.anchorLock.position.y = config.physics.radius * 2.75;
+      }
+
+      // غبار عند الهبوط
+      const air = height > 0.35;
+      if (alive && view.airborne && !air) {
+        this.spawnDust(target.x, target.z, 7);
+        this.emitSparks(target.x, 0.25, target.z, 5, 2.2, 0.5);
+      }
+      view.airborne = air;
       idx++;
     }
     for (const [id, v] of this.players) {
@@ -508,6 +694,31 @@ export class ArenaScene {
     this.renderedState.fill(-1);
     this.players.forEach((p) => p.group.visible = true);
   }
+}
+
+/** رمز قفل صغير يُرسم كصورة نقطية فوق الكرة المثبّتة */
+function makeLockSprite(): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  canvas.width = 96;
+  canvas.height = 96;
+  const ctx = canvas.getContext('2d')!;
+  ctx.strokeStyle = '#8bf07a';
+  ctx.lineWidth = 8;
+  ctx.lineCap = 'round';
+  // قوس القفل
+  ctx.beginPath();
+  ctx.arc(48, 40, 17, Math.PI, 0);
+  ctx.stroke();
+  // جسم القفل
+  ctx.fillStyle = '#8bf07a';
+  ctx.beginPath();
+  ctx.roundRect(23, 40, 50, 38, 8);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sprite.scale.set(1.5, 1.5, 1);
+  return sprite;
 }
 
 function makeLabel(text: string, color: string): THREE.Sprite {

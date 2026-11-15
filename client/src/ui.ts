@@ -3,7 +3,7 @@ import type { ArenaScene } from './scene';
 import type { AudioEngine } from './audio';
 import { t } from './i18n';
 import { buildPuzzle, puzzleTitle, type PuzzleView } from './puzzles';
-import { ITEM_IDS, type ItemId, type RoundResult, type MatchResult } from '@shared/index';
+import { ITEM_IDS, config, type ItemId, type RoundResult, type MatchResult } from '@shared/index';
 
 // أيقونات SVG مضمّنة — مضمونة على كل الأجهزة (بلا خطوط خارجية)
 const ITEM_ICONS: Record<ItemId, string> = {
@@ -17,6 +17,12 @@ const ITEM_ICONS: Record<ItemId, string> = {
     '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 2.5 5 11h4.2v6h5.6v-6H19z" fill="#7bdc4a"/><rect x="5" y="19.2" width="14" height="2.2" rx="1.1" fill="#7bdc4a"/></svg>',
 };
 const itemIcon = (id: ItemId) => ITEM_ICONS[id] ?? '';
+const ITEM_BANNER_COLORS: Record<ItemId, string> = {
+  charge: '#ffd23f',
+  shield: '#7fd4ff',
+  anchor: '#8bf07a',
+  jump: '#b6f06a',
+};
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -36,6 +42,15 @@ export class UI {
   private draftPick: ItemId | null = null;
   private lastItems: Record<string, ItemId | null> = {};
   private prediction: string | null = null;
+  private grantHost = $('#grantHost');
+  private myItem: ItemId | null = null;
+  private dbgEl: HTMLElement | null = null;
+  private dbgEvents: Array<{ t: number; e: any }> = [];
+  private dbgSnaps = 0;
+  private dbgRate = 0;
+  private dbgLastRateAt = 0;
+  private dbgLastSnap: any = null;
+  private timerLast = -1;
 
   constructor(private net: Net, private scene: ArenaScene, private audio: AudioEngine) {}
 
@@ -119,6 +134,7 @@ export class UI {
 
   // ---------------------------------------------------------------- المراحل
   enterPhase(name: string) {
+    this.timerLast = -1;
     const s = this.net.state;
     this.lastPhase = name;
     const phaseNames: Record<string, string> = {
@@ -304,23 +320,34 @@ export class UI {
     });
   }
 
-  onDraftPicked(d: { picked: Record<string, ItemId | null>; remaining: Record<ItemId, number> }) {
+  onDraftPicked(d: {
+    picked: Record<string, ItemId | null>;
+    reasons?: Record<string, { reason: 'ok' | 'outOfStock' | 'noPick'; wanted: ItemId | null }>;
+    remaining: Record<ItemId, number>;
+  }) {
     this.lastItems = d.picked;
     const s = this.net.state;
-    const mine = d.picked[s.youId ?? ''];
-    this.toast(mine ? `أداتك: ${t('item.' + mine)}` : 'لم تحصل على أداة', 2600);
+    const id = s.youId ?? '';
+    const mine = d.picked[id] ?? null;
+    const r = d.reasons?.[id];
+    // بطاقة واضحة لمدة ثانيتين: ماذا حصلت عليه، ولماذا البديل إن كان
+    this.showItemGranted(mine, r?.reason, r?.wanted ?? null);
   }
 
   // ---------------------------------------------------------------- الحلبة
   frame(dt: number) {
     const s = this.net.state;
     if (s.phase === 'LOBBY') return;
-    const left = Math.max(0, (s.endsAt - this.net.serverNow()) / 1000);
+    let left = Math.max(0, (s.endsAt - this.net.serverNow()) / 1000);
+    // قد يُمدّد الخادم المرحلة (نهضة مفاجئة) — نعرض تناقصًا فقط
+    if (this.timerLast >= 0) left = Math.min(left, this.timerLast);
+    this.timerLast = left;
     $('#timerVal').textContent = s.endsAt ? (left < 10 ? left.toFixed(1) : String(Math.ceil(left))) : '—';
     $('#roundLabel').textContent = `${t('round')} ${Math.max(1, s.round)}/${s.rounds}`;
     this.updateScoreboard();
     this.updateControls();
     this.updateSpectator();
+    this.updateDebug();
   }
 
   private updateScoreboard() {
@@ -356,18 +383,102 @@ export class UI {
     const s = this.net.state;
     const snap = this.net.snaps[this.net.snaps.length - 1];
     const me = snap?.players.find((p) => p.id === s.youId);
-    const fill = $('#dashFill');
     const dc = me ? me.dc : 1;
-    fill.style.transform = `scaleY(${Math.max(0, 1 - dc)})`;
+    $('#dashFill').style.transform = `scaleY(${Math.max(0, 1 - dc)})`;
     $('#dashBtn').classList.toggle('ready', dc >= 1);
-    const item = me?.it ?? null;
+
+    // الأداة: من اللقطة إن وُجدت، وإلا من نتيجة الاختيار (بين DRAFT و ARENA)
+    const item = me ? me.it : this.myItem;
     const active = me?.ia ?? null;
+    const btn = $('#itemBtn');
     const label = $('#itemLabel');
     const show = item ?? active;
-    label.innerHTML = show
-      ? `${itemIcon(show)}<div style="font-size:10px">${t('item.' + show)}${item ? '' : ' ✓'}</div>`
-      : '—';
-    $('#itemBtn').classList.toggle('empty', !item && !active);
+    if (active) {
+      const total = (config.items as any)?.[active]?.duration ?? 1;
+      const left = Math.max(0, me?.iat ?? total);
+      btn.style.setProperty('--p', String(Math.max(0, Math.min(1, left / total))));
+      label.innerHTML = `${itemIcon(active)}<div style="font-size:10px">${left.toFixed(1)}</div>`;
+    } else if (item) {
+      label.innerHTML = `${itemIcon(item)}<div style="font-size:10px">${t('item.' + item)}</div>`;
+    } else {
+      label.innerHTML = '';
+    }
+    btn.classList.toggle('ready', !!item);
+    btn.classList.toggle('active', !!active);
+    btn.classList.toggle('used', !item && !active);
+    btn.setAttribute('aria-label', show ? t('item.' + show) : '');
+  }
+
+  /** بطاقة 2 ثانية بعد مرحلة الاختيار: ماذا حصلت عليه ولماذا */
+  showItemGranted(item: ItemId | null, reason?: 'ok' | 'outOfStock' | 'noPick', wanted?: ItemId | null) {
+    this.myItem = item;
+    this.grantHost.innerHTML = '';
+    const el = document.createElement('div');
+    el.className = 'grant';
+    let note = '';
+    if (!item) note = 'نفد المخزون كله — بلا أداة هذه الجولة';
+    else if (reason === 'outOfStock' && wanted) note = `نفد مخزون ${t('item.' + wanted)} — أُعطيت بديلًا`;
+    else if (reason === 'noPick') note = 'لم تختر — أُعطيت أداة متاحة';
+    el.innerHTML = `
+      <div class="gsub">${t('draft.picked')}</div>
+      <div class="gicon">${item ? itemIcon(item) : '—'}</div>
+      <div class="gname">${item ? t('item.' + item) : 'بلا أداة'}</div>
+      ${note ? `<div class="gnote">${note}</div>` : ''}
+      ${item ? `<div class="gsub" style="max-width:76vw;text-align:center">${t('item.' + item + '.desc')}</div>` : ''}
+    `;
+    this.grantHost.appendChild(el);
+    setTimeout(() => {
+      el.classList.add('out');
+      setTimeout(() => el.remove(), 320);
+    }, 2000);
+  }
+
+  /** شريط عالي التباين عند لحظة التفعيل */
+  itemBanner(item: ItemId, text: string) {
+    const el = $('#itemBanner');
+    el.innerHTML = `${itemIcon(item)}<span>${text}</span>`;
+    el.style.background = ITEM_BANNER_COLORS[item] ?? '#ffd23f';
+    el.classList.remove('hidden');
+    clearTimeout((el as any)._t);
+    (el as any)._t = setTimeout(() => el.classList.add('hidden'), 1400);
+  }
+
+  // ---------------------------------------------------------------- الفحص
+  initDebug(on: boolean) {
+    if (!on) return;
+    this.dbgEl = $('#dbg');
+    this.dbgEl.classList.remove('hidden');
+  }
+
+  pushDebugEvent(e: any) {
+    if (!this.dbgEl) return;
+    this.dbgEvents.push({ t: Date.now(), e });
+    if (this.dbgEvents.length > 5) this.dbgEvents.shift();
+  }
+
+  private updateDebug() {
+    if (!this.dbgEl) return;
+    const s = this.net.state;
+    const snap = this.net.snaps[this.net.snaps.length - 1];
+    if (snap !== this.dbgLastSnap) {
+      this.dbgLastSnap = snap;
+      this.dbgSnaps++;
+    }
+    const now = performance.now();
+    if (now - this.dbgLastRateAt > 1000) {
+      this.dbgRate = this.dbgSnaps;
+      this.dbgSnaps = 0;
+      this.dbgLastRateAt = now;
+    }
+    const me = snap?.players.find((p) => p.id === s.youId);
+    const lines = [
+      `phase=${s.phase} round=${s.round}/${s.rounds} you=${(s.youId ?? '').slice(0, 6)}`,
+      `item: have=${me?.it ?? '-'} pick=${this.myItem ?? '-'} active=${me?.ia ?? '-'} left=${me?.iat ?? 0}s`,
+      `snaps/s=${this.dbgRate} total=${this.net.snaps.length} rtt=${Math.round(this.net.rtt)}ms`,
+      `events:`,
+      ...this.dbgEvents.map((d) => `  ${JSON.stringify(d.e).slice(0, 90)}`),
+    ];
+    this.dbgEl.textContent = lines.join('\n');
   }
 
   private updateSpectator() {

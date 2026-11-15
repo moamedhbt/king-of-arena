@@ -17,7 +17,8 @@
     "test:puzzles": "tsx tests/puzzles.test.ts",
     "test:sim": "tsx tests/sim.test.ts",
     "test:fairness": "tsx tests/fairness.test.ts",
-    "bots": "tsx tests/bots-match.ts"
+    "bots": "tsx tests/bots-match.ts",
+    "test:items": "tsx tests/items.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

@@ -533,19 +533,24 @@ export class Room {
       ? this.draftOrder
       : Array.from(this.players.keys());
     const picked: Record<string, ItemId | null> = {};
+    const reasons: Record<string, { reason: 'ok' | 'outOfStock' | 'noPick'; wanted: ItemId | null }> = {};
     const itemOrder = config.draft.itemOrder as ItemId[];
     for (const id of order) {
       const p = this.players.get(id);
       if (!p) continue;
       let chosen: ItemId | null = null;
+      let reason: 'ok' | 'outOfStock' | 'noPick' = 'ok';
       if (p.draftPick && this.inventory[p.draftPick] > 0) chosen = p.draftPick;
-      else chosen = itemOrder.find((it) => this.inventory[it] > 0) ?? null;
+      else {
+        reason = p.draftPick ? 'outOfStock' : 'noPick';
+        chosen = itemOrder.find((it) => this.inventory[it] > 0) ?? null;
+      }
       if (chosen) this.inventory[chosen]--;
       p.item = chosen;
       picked[id] = chosen;
+      reasons[id] = { reason, wanted: p.draftPick ?? null };
     }
-    // من لم يختر يُعيَّن له بترتيب مبذور بعد الجميع (يغطيه المنطق أعلاه بالكامل)
-    this.broadcast('draft:picked', { picked, remaining: { ...this.inventory } });
+    this.broadcast('draft:picked', { picked, reasons, remaining: { ...this.inventory } });
     this.startArena();
   }
 
@@ -806,6 +811,8 @@ export class Room {
       a: p.alive ? 1 : 0,
       it: p.item,
       ia: p.itemActiveUntil > sim.t ? p.lastItem : null,
+      iat: Math.round(Math.max(0, p.itemActiveUntil - sim.t) * 10) / 10,
+      at: p.anchorUntil > sim.t && p.anchorTile !== null ? p.anchorTile : -1,
       dc: Math.max(0, Math.min(1, 1 - (p.dashReadyAt - sim.t) / config.dash.cooldown)),
       fx: round3(p.faceX),
       fz: round3(p.faceZ),

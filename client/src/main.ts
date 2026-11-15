@@ -4,7 +4,7 @@ import { Controls } from './input';
 import { AudioEngine } from './audio';
 import { UI } from './ui';
 import { t } from './i18n';
-import { config } from '@shared/index';
+import { config, type ItemId } from '@shared/index';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -64,6 +64,9 @@ codeInput.addEventListener('keydown', (e) => {
 nameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') codeInput.focus();
 });
+
+// وضع الفحص ?debug=1
+ui.initDebug(new URLSearchParams(location.search).get('debug') === '1');
 
 // رابط دعوة
 const urlRoom = roomFromUrl();
@@ -143,6 +146,7 @@ net.on('phase', (p: any) => {
     // إعادة بناء المشهد للجولة الجديدة
     net.snaps.length = 0;
   }
+  ui.pushDebugEvent({ phase: p.name, endsAt: p.endsAt });
   ui.enterPhase(p.name);
 });
 net.on('error', (e: any) => {
@@ -175,9 +179,14 @@ net.on('roundResult', (r: any) => ui.showRoundResult(r));
 net.on('matchResult', (r: any) => ui.showMatchResult(r));
 
 function onGameEvent(e: any) {
+  ui.pushDebugEvent(e);
   const me = net.state.youId;
   switch (e.type) {
     case 'hit': {
+      if (e.charged) {
+        scene.burst(e.x ?? 0, e.z ?? 0, 22);
+        scene.shake(0.9, 0.22);
+      }
       const strength = e.s ?? 0.5;
       audio.sfx('hit', strength);
       if (strength > 0.55) {
@@ -198,9 +207,17 @@ function onGameEvent(e: any) {
     case 'dash':
       if (e.id !== me) audio.sfx('dash', 0.4);
       break;
-    case 'item':
+    case 'item': {
       audio.sfx('pick');
+      const itemId = (e.itemType ?? null) as ItemId | null;
+      const who = net.state.players.find((p) => p.id === e.id);
+      if (itemId) {
+        const mine = e.id === me;
+        ui.itemBanner(itemId, mine ? `تم تفعيل ${t('item.' + itemId)}` : `${who?.name ?? ''} فعّل ${t('item.' + itemId)}`);
+        if (typeof e.x === 'number' && typeof e.z === 'number') scene.burst(e.x, e.z, 14);
+      }
       break;
+    }
     default:
       break;
   }

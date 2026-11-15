@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 const suites = [
   ['الألغاز', 'tests/puzzles.test.ts'],
   ['المحاكاة', 'tests/sim.test.ts'],
+  ['الأدوات', 'tests/items.test.ts'],
   ['العدالة', 'tests/fairness.test.ts'],
   ['الشبكة الشاملة', 'tests/e2e.ts'],
 ];
