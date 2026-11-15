@@ -1,0 +1,14 @@
+# نشر ملك الحلبة على Render — New + → Blueprint (يقرأ هذا الملف تلقائيًا)
+services:
+  - type: web
+    name: king-of-arena
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.20.2

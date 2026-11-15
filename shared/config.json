@@ -9,13 +9,18 @@
     "pingSec": 2,
     "clockSyncSec": 10,
     "rateLimitPerSec": 30,
-    "rateLimitBanAfter": 20
+    "rateLimitBanAfter": 20,
+    "rateLimitBurst": 45
   },
   "room": {
     "minPlayers": 2,
     "maxPlayers": 8,
     "roundsDefault": 3,
-    "roundsOptions": [3, 5, 7],
+    "roundsOptions": [
+      3,
+      5,
+      7
+    ],
     "nameMaxLen": 12,
     "codeLen": 4,
     "joinAfterStart": false
@@ -73,10 +78,26 @@
       "8": 1.0
     },
     "rings": [
-      { "ring": 4, "groupSize": 4, "intervalSec": 2.0 },
-      { "ring": 3, "groupSize": 3, "intervalSec": 1.8 },
-      { "ring": 2, "groupSize": 2, "intervalSec": 1.6 },
-      { "ring": 1, "groupSize": 2, "intervalSec": 1.4 }
+      {
+        "ring": 4,
+        "groupSize": 4,
+        "intervalSec": 2.0
+      },
+      {
+        "ring": 3,
+        "groupSize": 3,
+        "intervalSec": 1.8
+      },
+      {
+        "ring": 2,
+        "groupSize": 2,
+        "intervalSec": 1.6
+      },
+      {
+        "ring": 1,
+        "groupSize": 2,
+        "intervalSec": 1.4
+      }
     ]
   },
   "scoring": {
@@ -85,13 +106,22 @@
     "koBonus": 1,
     "koCap": 3,
     "koWindow": 3,
-    "puzzleBonus": [2, 1],
+    "puzzleBonus": [
+      2,
+      1
+    ],
     "predictBonus": 1
   },
   "puzzle": {
     "lockSec": 2,
     "tieWindowMs": 50,
-    "difficultyByRound": [2, 4, 5, 7, 9],
+    "difficultyByRound": [
+      2,
+      4,
+      5,
+      7,
+      9
+    ],
     "minDifficulty": 2,
     "maxDifficulty": 9,
     "optionsCount": 4,
@@ -102,13 +132,28 @@
   },
   "draft": {
     "mode": "single",
-    "itemOrder": ["charge", "shield", "anchor", "jump"]
+    "itemOrder": [
+      "charge",
+      "shield",
+      "anchor",
+      "jump"
+    ]
   },
   "items": {
-    "charge": { "duration": 4, "multiplier": 2 },
-    "shield": { "duration": 3 },
-    "anchor": { "duration": 6, "speedFactor": 0.7 },
-    "jump": { "impulse": 11 }
+    "charge": {
+      "duration": 4,
+      "multiplier": 2
+    },
+    "shield": {
+      "duration": 3
+    },
+    "anchor": {
+      "duration": 6,
+      "speedFactor": 0.7
+    },
+    "jump": {
+      "impulse": 11
+    }
   },
   "pickups": {
     "enabled": false,

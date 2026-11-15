@@ -106,23 +106,35 @@ function sendTo(socketId: string, event: string, data: any) {
   io.to(socketId).emit(event, data);
 }
 
+function applyRtt(player: { rttMs: number }, raw: unknown) {
+  const v = Number(raw);
+  if (Number.isFinite(v) && v >= 0 && v < 5000) {
+    // متوسط متحرك لتقليل الضجيج
+    player.rttMs = player.rttMs ? player.rttMs * 0.7 + v * 0.3 : v;
+  }
+}
+
 io.on('connection', (socket) => {
-  let budget = config.net.rateLimitPerSec;
-  let strikes = 0;
+  // دلو رموز: سعة = rate + اندفاع، ويُعاد تعبئته بالمعدل المسموح كل ثانية.
+  // تجاوز السعة يُسقِط الرسالة فقط (المدخلات تُعوَّض في الرسالة التالية)
+  // ولا يُقطع الاتصال إلا بعد إساءة مستمرة.
+  const rate = config.net.rateLimitPerSec;
+  const burst = (config.net as any).rateLimitBurst ?? rate;
+  let budget = rate + burst;
+  let windowCount = 0;
+  let abuseSeconds = 0;
   const refill = setInterval(() => {
-    budget = config.net.rateLimitPerSec;
+    // إساءة مستمرة = تجاوز الحد المسموح في 3 ثوانٍ متتالية
+    abuseSeconds = windowCount > rate + burst ? abuseSeconds + 1 : 0;
+    if (abuseSeconds >= 3) socket.disconnect(true);
+    windowCount = 0;
+    budget = Math.min(rate + burst, budget + rate);
   }, 1000);
 
   const guard = (): boolean => {
+    windowCount++;
     budget--;
-    if (budget < 0) {
-      strikes++;
-      if (strikes > config.net.rateLimitBanAfter) {
-        socket.disconnect(true);
-      }
-      return false;
-    }
-    return true;
+    return budget >= 0;
   };
 
   const bound = () => {
@@ -232,6 +244,7 @@ io.on('connection', (socket) => {
     if (!guard()) return;
     const b = bound();
     if (!b) return;
+    applyRtt(b.player!, m?.rtt);
     b.room.feedInput(b.player!.id, m ?? {});
   });
 
@@ -256,15 +269,12 @@ io.on('connection', (socket) => {
     b.room.predict(b.player!.id, String(m?.playerId ?? ''));
   });
 
+  // توافق خلفي: بعض العملاء القدامى يرسلون rtt منفصلة (تُهمَل الزائدة عن الحد)
   socket.on('rtt', (m: any) => {
     if (!guard()) return;
     const b = bound();
     if (!b) return;
-    const v = Number(m?.rtt);
-    if (Number.isFinite(v) && v >= 0 && v < 5000) {
-      // متوسط متحرك لتقليل الضجيج
-      b.player!.rttMs = b.player!.rttMs ? b.player!.rttMs * 0.7 + v * 0.3 : v;
-    }
+    applyRtt(b.player!, m?.rtt);
   });
 
   socket.on('disconnect', () => {
@@ -291,15 +301,24 @@ io.on('connection', (socket) => {
   });
 });
 
-// تنظيف الغرف الفارغة
+// تنظيف الغرف الفارغة والمهجورة (كل اللاعبين منقطعون بعد مهلة إعادة الاتصال)
 setInterval(() => {
+  const now = Date.now();
   for (const [code, room] of rooms) {
-    if (room.players.size === 0) {
+    const list = Array.from(room.players.values());
+    const empty = list.length === 0;
+    const abandoned =
+      list.length > 0 &&
+      list.every(
+        (p) => !p.connected && p.disconnectedAt !== null && now - p.disconnectedAt > config.net.reconnectSec * 1000
+      );
+    if (empty || abandoned) {
       room.destroy();
       rooms.delete(code);
+      console.log(`[${code}] أُغلقت الغرفة (${empty ? 'فارغة' : 'مهجورة'})`);
     }
   }
-}, 30000);
+}, 15000);
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`ملك الحلبة — الخادم يعمل على http://0.0.0.0:${PORT}`);
