@@ -77,8 +77,9 @@ function serveStatic(url: string, res: ServerResponse) {
 
 const io = new Server(httpServer, {
   cors: { origin: true, credentials: true },
-  pingInterval: 10000,
-  pingTimeout: 8000,
+  // مهل أطول تناسب شبكات الهاتف والشاشات المقفلة (كانت 10/8 ثانية = انقطاعات وهمية)
+  pingInterval: config.net.pingIntervalMs,
+  pingTimeout: config.net.pingTimeoutMs,
   maxHttpBufferSize: 1e5,
   transports: ['polling', 'websocket'],
 });
@@ -205,6 +206,7 @@ io.on('connection', (socket) => {
       });
       return;
     }
+    room.emptySince = null;
     socketIndex.set(socket.id, { roomCode: code, playerId: id });
     socket.join(code);
     socket.emit('joined', { code, playerId: id, token: newTok, state: room.roomState(id) });
@@ -292,9 +294,10 @@ io.on('connection', (socket) => {
       const p = r.players.get(ref.playerId);
       if (p && !p.connected) {
         r.removePlayer(ref.playerId);
-        if (r.players.size === 0) {
-          r.destroy();
-          rooms.delete(ref.roomCode);
+        // لا نتلف الغرفة: تبقى صالحة للانضمام خلال room.emptyTtlSec
+        if (r.resetToLobbyIfEmpty()) {
+          r.emptySince = Date.now();
+          console.log(`[${ref.roomCode}] صارت فارغة — تبقى ${Math.round(config.room.emptyTtlSec / 60)} دقائق`);
         }
       }
     }, config.net.reconnectSec * 1000);
@@ -306,16 +309,15 @@ setInterval(() => {
   const now = Date.now();
   for (const [code, room] of rooms) {
     const list = Array.from(room.players.values());
-    const empty = list.length === 0;
-    const abandoned =
-      list.length > 0 &&
-      list.every(
-        (p) => !p.connected && p.disconnectedAt !== null && now - p.disconnectedAt > config.net.reconnectSec * 1000
-      );
-    if (empty || abandoned) {
+    if (list.length > 0) {
+      room.emptySince = null;
+      continue;
+    }
+    if (room.emptySince === null) room.emptySince = now;
+    if (now - room.emptySince > config.room.emptyTtlSec * 1000) {
       room.destroy();
       rooms.delete(code);
-      console.log(`[${code}] أُغلقت الغرفة (${empty ? 'فارغة' : 'مهجورة'})`);
+      console.log(`[${code}] أُغلقت الغرفة (فارغة منذ ${Math.round(config.room.emptyTtlSec / 60)} دقيقة)`);
     }
   }
 }, 15000);

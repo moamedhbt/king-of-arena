@@ -71,6 +71,10 @@ if (urlRoom) {
   codeInput.value = urlRoom;
   const saved = localStorage.getItem('koa_name');
   if (saved) net.join(urlRoom, saved);
+  else {
+    nameInput.focus();
+    ui.toast('أدخل اسمك ثم اضغط «انضمام» — كود الغرفة جاهز', 5000);
+  }
 }
 
 // ------------------------------------------------------------------ اللوبي
@@ -143,6 +147,18 @@ net.on('phase', (p: any) => {
 });
 net.on('error', (e: any) => {
   ui.error(t('errors.' + e.code) || e.message || 'خطأ');
+  // الغرفة لم تعد موجودة (انتهت مهلتها أو أُعيد تشغيل الخادم):
+  // نخرج إلى الشاشة الرئيسية بدل إبقاء الواجهة تَعِد بغرفة غير قائمة
+  if (e?.code === 'NO_ROOM' && net.state.code) {
+    const lost = net.state.code;
+    net.state.code = null;
+    net.state.token = null;
+    localStorage.removeItem('koa_token_' + lost);
+    codeInput.value = lost; // نُبقي الكود مكتوبًا ليسهل إعادة المحاولة
+    history.replaceState(null, '', location.pathname);
+    ui.showScreen('home');
+    ui.error('انتهت الغرفة أو أُعيد تشغيل الخادم — أنشئ غرفة جديدة');
+  }
 });
 net.on('disconnected', () => ui.toast(t('conn.lost'), 3000));
 net.on('connected', () => {

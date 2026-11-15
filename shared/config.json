@@ -10,7 +10,9 @@
     "clockSyncSec": 10,
     "rateLimitPerSec": 30,
     "rateLimitBanAfter": 20,
-    "rateLimitBurst": 45
+    "rateLimitBurst": 45,
+    "pingIntervalMs": 25000,
+    "pingTimeoutMs": 20000
   },
   "room": {
     "minPlayers": 2,
@@ -23,7 +25,8 @@
     ],
     "nameMaxLen": 12,
     "codeLen": 4,
-    "joinAfterStart": false
+    "joinAfterStart": false,
+    "emptyTtlSec": 300
   },
   "phase": {
     "countdown": 3,

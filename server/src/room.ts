@@ -90,6 +90,7 @@ export class Room {
   players = new Map<string, Player>();
   order: string[] = []; // ترتيب الانضمام
   sim: ArenaSim | null = null;
+  emptySince: number | null = null; // متى صارت الغرفة فارغة (لمهلة البقاء)
 
   puzzle: Puzzle | null = null;
   puzzleType: PuzzleType | null = null;
@@ -211,6 +212,27 @@ export class Room {
   }
 
   /** إخراج نهائي (انتهت مهلة إعادة الاتصال أو خرج من اللوبي) */
+  /**
+   * عند خروج آخر لاعب: أعِد الغرفة إلى اللوبي بدل إتلافها،
+   * ليبقى كود الغرفة صالحًا للمشاركة خلال مهلة room.emptyTtlSec.
+   */
+  resetToLobbyIfEmpty(): boolean {
+    if (this.players.size > 0) return false;
+    if (this.phase !== 'LOBBY') {
+      this.sim = null;
+      this.puzzle = null;
+      this.draftOrder = [];
+      this.roundResults = [];
+      this.roundStartAlive = 0;
+      this.round = 0;
+      this.phase = 'LOBBY';
+      this.phaseEndsAt = 0;
+      this.log('عودة الغرفة إلى اللوبي (لا لاعبين)');
+    }
+    this.hostId = '';
+    return true;
+  }
+
   removePlayer(id: string) {
     const p = this.players.get(id);
     if (!p) return;
