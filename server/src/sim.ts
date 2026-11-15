@@ -285,6 +285,8 @@ export class ArenaSim {
         const t = tileAt(p.x, p.z);
         p.anchorTile = t ? Math.max(0, t.id) : null;
         p.anchorUntil = this.t + config.items.anchor.duration;
+        // لكي يعرض العميل «نشط» مع حلقة العدّ التنازلي مثل بقية الأدوات
+        p.itemActiveUntil = p.anchorUntil;
         break;
       }
       case 'jump':
