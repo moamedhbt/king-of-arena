@@ -63,8 +63,8 @@ export class ArenaScene {
     this.renderer.setClearColor(0x0a1226, 1);
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
-    this.scene.background = new THREE.Color(0x08101f);
-    this.scene.fog = new THREE.Fog(0x08101f, 60, 130);
+    this.scene.background = makeSkyTexture();
+    this.scene.fog = new THREE.Fog(0x0a1730, 70, 165);
     this.scene.add(this.containers);
 
     this.buildLights();
@@ -96,7 +96,7 @@ export class ArenaScene {
     for (let i = 0; i < TILE_COUNT; i++) {
       const t = TILES[i];
       const dark = (t.gx + t.gz) % 2 === 0;
-      this.color.setHex(dark ? 0x17867f : 0x146d68);
+      this.color.setHex(dark ? 0x16233f : 0x111a30);
       this.tileMesh.setColorAt(i, this.color);
       this.dummy.position.set(t.x, -config.arena.tileThickness / 2, t.z);
       this.dummy.rotation.set(0, 0, 0);
@@ -108,13 +108,48 @@ export class ArenaScene {
     if (this.tileMesh.instanceColor) this.tileMesh.instanceColor.needsUpdate = true;
     this.containers.add(this.tileMesh);
 
-    // هالة تحت الحلبة
+    // ---------------- منصة ثمانية الأضلاع ----------------
+    const extent = (config.arena.gridSize * (config.arena.tileSize + config.arena.tileGap)) / 2;
+    const slabR = extent + 1.6;
+
+    const slab = new THREE.Mesh(
+      new THREE.CylinderGeometry(slabR, slabR * 0.94, 1.6, 8),
+      new THREE.MeshLambertMaterial({ color: 0x0d1526 })
+    );
+    slab.rotation.y = Math.PI / 8;
+    slab.position.y = -config.arena.tileThickness / 2 - 0.85;
+    this.containers.add(slab);
+
+    // حافة نيون على المنصة
+    const edge = new THREE.Mesh(
+      new THREE.RingGeometry(slabR - 0.25, slabR + 0.12, 8, 1),
+      new THREE.MeshBasicMaterial({
+        color: 0x2de1ff,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    edge.rotation.x = -Math.PI / 2;
+    edge.rotation.z = Math.PI / 8;
+    edge.position.y = 0.02;
+    this.containers.add(edge);
+
+    // بركة ضوء تحت الحلبة (توهج نيون)
     const glow = new THREE.Mesh(
-      new THREE.CircleGeometry(30, 48),
-      new THREE.MeshBasicMaterial({ color: 0x0d4a52, transparent: true, opacity: 0.35 })
+      new THREE.CircleGeometry(slabR * 1.5, 48),
+      new THREE.MeshBasicMaterial({
+        color: 0x1b6fa8,
+        transparent: true,
+        opacity: 0.3,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
     );
     glow.rotation.x = -Math.PI / 2;
-    glow.position.y = -4.5;
+    glow.position.y = -2.2;
     this.containers.add(glow);
   }
 
@@ -647,7 +682,7 @@ export class ArenaScene {
 
       if (st === 0) {
         const dark = (t.gx + t.gz) % 2 === 0;
-        this.color.setHex(dark ? 0x17867f : 0x146d68);
+        this.color.setHex(dark ? 0x16233f : 0x111a30);
         this.tileMesh.setColorAt(i, this.color);
         if (this.tileMesh.instanceColor) this.tileMesh.instanceColor.needsUpdate = true;
       }
@@ -694,6 +729,24 @@ export class ArenaScene {
     this.renderedState.fill(-1);
     this.players.forEach((p) => p.group.visible = true);
   }
+}
+
+/** سماء متدرّجة مولّدة بالكامل (بلا صور خارجية) */
+function makeSkyTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 256;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0, '#05070f');
+  g.addColorStop(0.45, '#0a1730');
+  g.addColorStop(0.75, '#123055');
+  g.addColorStop(1, '#0a1730');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 8, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /** رمز قفل صغير يُرسم كصورة نقطية فوق الكرة المثبّتة */

@@ -13,16 +13,13 @@ function trial(playerCount: number, rounds: number) {
     const r = runBotRound(playerCount, 100000 + i * 7919);
     // الفائز = آخر من بقي؛ التعادل عند نهاية الوقت يُقسم بالتساوي
     const alive = playerCount - r.fallOrder.length;
-    if (alive === 0) continue;
+    if (alive === 0 && r.fallOrder.length === 0) continue;
     decided++;
-    const winners = alive > 0 ? r.fallOrder.length : 0;
-    if (alive > 0) {
-      // مواضع البداية للباقين غير معروفة هنا، لذلك نستخدم من لم يسقط
-      const fallen = new Set(r.fallOrder);
-      const aliveIds = Array.from({ length: playerCount }, (_, i) => `p${i}`).filter((id) => !fallen.has(id));
-      for (const id of aliveIds) wins[Number(id.slice(1))] += 1 / aliveIds.length;
-    }
-    void winners;
+    const fallen = new Set(r.fallOrder);
+    const aliveIds = Array.from({ length: playerCount }, (_, i) => `p${i}`).filter((id) => !fallen.has(id));
+    // الباقون يتقاسمون الفوز؛ وإن سقط الجميع فالفائز هو آخر من سقط (نفس قاعدة اللعبة)
+    const winners = aliveIds.length ? aliveIds : [r.fallOrder[r.fallOrder.length - 1]];
+    for (const id of winners) wins[Number(id.slice(1))] += 1 / winners.length;
   }
   console.log(`  ${playerCount} لاعبين × ${rounds} جولة (${decided} محسومة)`);
   const expected = 1 / playerCount;
@@ -39,8 +36,8 @@ function trial(playerCount: number, rounds: number) {
 console.log('— اختبار العدالة (موضع البداية) —');
 let ok = true;
 ok = trial(2, 1000) && ok;
-ok = trial(4, 500) && ok;
-ok = trial(8, 600) && ok;
+ok = trial(4, 900) && ok;
+ok = trial(8, 800) && ok;
 
 if (!ok) {
   console.error('\nفشل اختبار العدالة: توزيع الفوز غير متساوٍ');

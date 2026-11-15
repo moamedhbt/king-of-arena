@@ -10,6 +10,7 @@ import {
   Rng,
   deriveSeed,
   spawnPositions,
+  CENTER_TILE,
   ITEM_IDS,
 } from '../../shared/src/index';
 import type { ItemId } from '../../shared/src/index';
@@ -29,6 +30,8 @@ export interface SimEvent {
   itemType?: ItemId;
   /** هل كانت الضربة مشحونة (×2) */
   charged?: boolean;
+  /** بداية النهضة الأخيرة */
+  finale?: boolean;
 }
 
 export interface SimPlayer {
@@ -90,6 +93,14 @@ export class ArenaSim {
   /** وقت سقوط كل بلاطة (بالثواني من بداية الحلبة) */
   collapseAt = new Float64Array(TILE_COUNT).fill(Infinity);
 
+  private collisionTurn = 0;
+  private tieRng: Rng;
+
+  /** النهضة الأخيرة: البلاطة المركزية تتقلّص حتى يبقى الأقرب للمركز */
+  finaleActive = false;
+  finaleStart = 0;
+  finaleRadius = 0;
+
   events: SimEvent[] = [];
   fallOrder: string[] = [];
 
@@ -103,6 +114,7 @@ export class ArenaSim {
   constructor(opts: SimOptions) {
     const n = opts.playerIds.length;
     this.startAlive = opts.startAlive ?? n;
+    this.tieRng = new Rng(deriveSeed(opts.seed, 'tie', opts.roundIndex));
     this.playerScale = config.collapse.playerCountScale[String(n) as '2'] ?? 1;
 
     // ---- بلاطات ----
@@ -223,6 +235,18 @@ export class ArenaSim {
       this.nextGroupAt = this.t + g.intervalSec * scale;
     }
 
+    // انتهت كل الحلقات وبقي أكثر من لاعب → ابدأ النهضة الأخيرة
+    if (this.groupIdx >= this.queue.length && !this.finaleActive && this.aliveCount > 1) {
+      this.finaleActive = true;
+      this.finaleStart = this.t + config.collapse.finaleWarnSec;
+      this.finaleRadius = config.arena.tileSize / 2;
+      this.emit({ type: 'warn', s: 1, finale: true });
+    }
+    if (this.finaleActive && this.t >= this.finaleStart) {
+      const k = Math.min(1, (this.t - this.finaleStart) / config.collapse.finaleSec);
+      this.finaleRadius = Math.max(0.35, (config.arena.tileSize / 2) * (1 - k));
+    }
+
     for (let id = 0; id < TILE_COUNT; id++) {
       if (this.tileStates[id] !== WARNED) continue;
       if (this.t < this.collapseAt[id]) continue;
@@ -260,6 +284,10 @@ export class ArenaSim {
   }
 
   private supported(x: number, z: number): boolean {
+    if (this.finaleActive && this.t >= this.finaleStart) {
+      const t = tileAt(x, z);
+      if (t && t.id === CENTER_TILE.id) return Math.max(Math.abs(x), Math.abs(z)) <= this.finaleRadius;
+    }
     const t = tileAt(x, z);
     if (!t) return false;
     return this.tileStates[t.id] !== GONE;
@@ -394,7 +422,10 @@ export class ArenaSim {
   private resolveCollisions() {
     const C = config.physics;
     const minDist = C.radius * 2;
-    const alive = this.alivePlayers;
+    // ترتيب معالجة التصادم يتغيّر كل إطار: يمنع أفضلية منهجية لمن هو أول في المصفوفة
+    const raw = this.alivePlayers;
+    const off = raw.length > 1 ? this.collisionTurn++ % raw.length : 0;
+    const alive = off ? raw.slice(off).concat(raw.slice(0, off)) : raw;
 
     for (let i = 0; i < alive.length; i++) {
       for (let j = i + 1; j < alive.length; j++) {
@@ -502,6 +533,7 @@ export class ArenaSim {
   }
 
   private checkDeaths() {
+    const dying: SimPlayer[] = [];
     for (const p of this.players) {
       if (!p.alive) continue;
       if (p.y < config.physics.killY) {
@@ -516,10 +548,20 @@ export class ArenaSim {
         } else {
           p.deathCause = 'collapse';
         }
-        this.fallOrder.push(p.id);
-        this.emit({ type: 'ko', id: p.id, by: p.killerId ?? undefined, x: p.x, z: p.z });
-        this.emit({ type: 'fall', id: p.id, x: p.x, z: p.z });
+        dying.push(p);
       }
+    }
+    // سقوط متزامن: الأبعد عن المركز يُحتسب أولًا (قاعدة معلنة ومتماثلة)
+    if (dying.length > 1) {
+      const key = (p: SimPlayer) => Math.max(Math.abs(p.x), Math.abs(p.z));
+      // تعادل تام (مسافة متساوية): قرعة مبذورة — عادلة في التوقّع لا محسومة لأحد
+      const tie = new Map(dying.map((p) => [p.id, this.tieRng.next()]));
+      dying.sort((a, b) => key(b) - key(a) || tie.get(a.id)! - tie.get(b.id)!);
+    }
+    for (const p of dying) {
+      this.fallOrder.push(p.id);
+      this.emit({ type: 'ko', id: p.id, by: p.killerId ?? undefined, x: p.x, z: p.z });
+      this.emit({ type: 'fall', id: p.id, x: p.x, z: p.z });
     }
   }
 
