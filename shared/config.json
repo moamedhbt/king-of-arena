@@ -61,7 +61,7 @@
   "arena": {
     "gridSize": 9,
     "tileSize": 4,
-    "tileGap": 0.15,
+    "tileGap": 0.2,
     "tileThickness": 1,
     "spawnRadius": 6.5,
     "centerTilePersists": true,

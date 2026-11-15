@@ -96,7 +96,7 @@ export class ArenaScene {
     for (let i = 0; i < TILE_COUNT; i++) {
       const t = TILES[i];
       const dark = (t.gx + t.gz) % 2 === 0;
-      this.color.setHex(dark ? 0x16233f : 0x111a30);
+      this.color.setHex(dark ? 0x35618f : 0x2b527d);
       this.tileMesh.setColorAt(i, this.color);
       this.dummy.position.set(t.x, -config.arena.tileThickness / 2, t.z);
       this.dummy.rotation.set(0, 0, 0);
@@ -107,6 +107,20 @@ export class ArenaScene {
     this.tileMesh.instanceMatrix.needsUpdate = true;
     if (this.tileMesh.instanceColor) this.tileMesh.instanceColor.needsUpdate = true;
     this.containers.add(this.tileMesh);
+
+    // شبكة ضوء أسفل البلاطات: الفراغات بين البلاطات تتوهّج => يظهر شكل الثمانية
+    const gridGlow = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        (config.arena.gridSize * (config.arena.tileSize + config.arena.tileGap)) / 2 + 0.2,
+        (config.arena.gridSize * (config.arena.tileSize + config.arena.tileGap)) / 2 + 0.2,
+        0.08,
+        8
+      ),
+      new THREE.MeshBasicMaterial({ color: 0x36e6ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending })
+    );
+    gridGlow.rotation.y = Math.PI / 8;
+    gridGlow.position.y = -0.16;
+    this.containers.add(gridGlow);
 
     // ---------------- منصة ثمانية الأضلاع ----------------
     const extent = (config.arena.gridSize * (config.arena.tileSize + config.arena.tileGap)) / 2;
@@ -682,7 +696,7 @@ export class ArenaScene {
 
       if (st === 0) {
         const dark = (t.gx + t.gz) % 2 === 0;
-        this.color.setHex(dark ? 0x16233f : 0x111a30);
+        this.color.setHex(dark ? 0x35618f : 0x2b527d);
         this.tileMesh.setColorAt(i, this.color);
         if (this.tileMesh.instanceColor) this.tileMesh.instanceColor.needsUpdate = true;
       }
