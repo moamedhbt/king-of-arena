@@ -1,0 +1,30 @@
+{
+  "name": "king-of-arena",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ملك الحلبة — MVP v0.1",
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "dev:client": "npm run dev -w client",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build -w client && npm run build -w server",
+    "start": "node server/dist/index.cjs",
+    "test": "tsx tests/run.ts",
+    "test:puzzles": "tsx tests/puzzles.test.ts",
+    "test:sim": "tsx tests/sim.test.ts",
+    "test:fairness": "tsx tests/fairness.test.ts",
+    "bots": "tsx tests/bots-match.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/three": "^0.170.0",
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}

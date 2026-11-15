@@ -1,0 +1,14 @@
+{
+  "name": "server",
+  "private": true,
+  "version": "0.1.0",
+  "main": "dist/index.cjs",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.cjs --log-level=warning",
+    "start": "node dist/index.cjs"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.1"
+  }
+}

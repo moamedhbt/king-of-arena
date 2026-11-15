@@ -1,0 +1,126 @@
+{
+  "$comment": "ملك الحلبة — كل الأرقام القابلة للتوازن هنا. لا أرقام توازن في الكود.",
+  "net": {
+    "tickHz": 30,
+    "snapshotHz": 20,
+    "interpDelayMs": 100,
+    "reconnectSec": 30,
+    "inputHz": 20,
+    "pingSec": 2,
+    "clockSyncSec": 10,
+    "rateLimitPerSec": 30,
+    "rateLimitBanAfter": 20
+  },
+  "room": {
+    "minPlayers": 2,
+    "maxPlayers": 8,
+    "roundsDefault": 3,
+    "roundsOptions": [3, 5, 7],
+    "nameMaxLen": 12,
+    "codeLen": 4,
+    "joinAfterStart": false
+  },
+  "phase": {
+    "countdown": 3,
+    "puzzle": 12,
+    "draft": 6,
+    "arenaIntro": 3,
+    "arenaMax": 60,
+    "arenaEndDelay": 0.8,
+    "finaleFallSec": 3,
+    "roundResult": 6,
+    "matchResult": 12
+  },
+  "physics": {
+    "accel": 26,
+    "drag": 3,
+    "gravity": 30,
+    "radius": 0.8,
+    "mass": 1,
+    "restitution": 0.9,
+    "killY": -12,
+    "maxHorizontalSpeed": 24,
+    "airControlFactor": 0.5,
+    "collideMaxY": 1.0
+  },
+  "dash": {
+    "impulse": 16,
+    "cooldown": 1.5,
+    "window": 0.3,
+    "bonus": 9,
+    "recoil": 3
+  },
+  "arena": {
+    "gridSize": 9,
+    "tileSize": 4,
+    "tileGap": 0.15,
+    "tileThickness": 1,
+    "spawnRadius": 6,
+    "centerTilePersists": true
+  },
+  "collapse": {
+    "grace": 5,
+    "warnTime": 2.5,
+    "suddenDeathFactor": 0.5,
+    "suddenDeathRequiresStartAbove2": true,
+    "playerCountScale": {
+      "2": 0.6,
+      "3": 0.7,
+      "4": 0.85,
+      "5": 1.0,
+      "6": 1.0,
+      "7": 1.0,
+      "8": 1.0
+    },
+    "rings": [
+      { "ring": 4, "groupSize": 4, "intervalSec": 2.0 },
+      { "ring": 3, "groupSize": 3, "intervalSec": 1.8 },
+      { "ring": 2, "groupSize": 2, "intervalSec": 1.6 },
+      { "ring": 1, "groupSize": 2, "intervalSec": 1.4 }
+    ]
+  },
+  "scoring": {
+    "survivalMax": 10,
+    "survivalRoundTo": 0.5,
+    "koBonus": 1,
+    "koCap": 3,
+    "koWindow": 3,
+    "puzzleBonus": [2, 1],
+    "predictBonus": 1
+  },
+  "puzzle": {
+    "lockSec": 2,
+    "tieWindowMs": 50,
+    "difficultyByRound": [2, 4, 5, 7, 9],
+    "minDifficulty": 2,
+    "maxDifficulty": 9,
+    "optionsCount": 4,
+    "flashSec": 0.6,
+    "flashSecHard": 0.45,
+    "flashHardFromDifficulty": 7,
+    "memoryAnswerSec": 9
+  },
+  "draft": {
+    "mode": "single",
+    "itemOrder": ["charge", "shield", "anchor", "jump"]
+  },
+  "items": {
+    "charge": { "duration": 4, "multiplier": 2 },
+    "shield": { "duration": 3 },
+    "anchor": { "duration": 6, "speedFactor": 0.7 },
+    "jump": { "impulse": 11 }
+  },
+  "pickups": {
+    "enabled": false,
+    "startAtSec": 10,
+    "everySec": 15,
+    "maxItems": 2
+  },
+  "ui": {
+    "audioDefault": true,
+    "musicDefault": true,
+    "vibrationDefault": true,
+    "hitStopMs": 70,
+    "shakeSec": 0.25
+  }
+}
