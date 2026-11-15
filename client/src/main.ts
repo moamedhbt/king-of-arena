@@ -13,7 +13,7 @@ const net = new Net();
 const scene = new ArenaScene(canvas);
 const audio = new AudioEngine();
 const ui = new UI(net, scene, audio);
-const controls = new Controls($('#joystick'), $('#stick'), $('#dashBtn'), $('#itemBtn'));
+const controls = new Controls($('#joystick'), $('#stick'), $('#dashBtn'), [$('#itemBtn0'), $('#itemBtn1')]);
 
 const nameInput = $<HTMLInputElement>('#nameInput');
 const codeInput = $<HTMLInputElement>('#codeInput');
@@ -207,6 +207,17 @@ function onGameEvent(e: any) {
     case 'dash':
       if (e.id !== me) audio.sfx('dash', 0.4);
       break;
+    case 'pickup': {
+      const it = (e.itemType ?? null) as ItemId | null;
+      if (!it) break;
+      const mine = e.id === me;
+      audio.sfx('pick');
+      if (mine) {
+        ui.toast(`التقطت: ${t('item.' + it)}`, 1600);
+        if (typeof e.x === 'number') scene.burst(e.x, e.z ?? 0, 12);
+      }
+      break;
+    }
     case 'item': {
       audio.sfx('pick');
       const itemId = (e.itemType ?? null) as ItemId | null;
@@ -231,7 +242,8 @@ setInterval(() => {
     return;
   }
   controls.poll();
-  net.sendInput(controls.x, controls.z, controls.consumeDash(), controls.consumeItem());
+  const slot = controls.consumeItem();
+  net.sendInput(controls.x, controls.z, controls.consumeDash(), slot >= 0, Math.max(0, slot));
 }, 1000 / config.net.inputHz);
 
 let last = performance.now();

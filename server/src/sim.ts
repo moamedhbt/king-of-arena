@@ -20,7 +20,7 @@ export const WARNED = 1;
 export const GONE = 2;
 
 export interface SimEvent {
-  type: 'hit' | 'ko' | 'fall' | 'warn' | 'dash' | 'item';
+  type: 'hit' | 'ko' | 'fall' | 'warn' | 'dash' | 'item' | 'pickup' | 'finale';
   x?: number;
   z?: number;
   s?: number;
@@ -55,6 +55,7 @@ export interface SimPlayer {
   inputZ: number;
   wantDash: boolean;
   wantItem: boolean;
+  wantItemSlot: number;
   faceX: number;
   faceZ: number;
 
@@ -66,7 +67,7 @@ export interface SimPlayer {
   lastHitBy: string | null;
   lastHitAt: number;
 
-  item: ItemId | null;
+  items: ItemId[];
   /** الأداة التي فُعّلت (تبقى بعد استهلاك المخزون) */
   lastItem: ItemId | null;
   itemActiveUntil: number;
@@ -101,6 +102,12 @@ export class ArenaSim {
   finaleStart = 0;
   finaleRadius = 0;
 
+  /** بيكابات الأدوات في الحلبة (نظام بلور: حركة = مكافأة) */
+  pickups: Array<{ id: number; x: number; z: number; item: ItemId; bornAt: number }> = [];
+  private pickupNextAt = 0;
+  private pickupSeq = 0;
+  private pickupRng: Rng;
+
   events: SimEvent[] = [];
   fallOrder: string[] = [];
 
@@ -115,6 +122,8 @@ export class ArenaSim {
     const n = opts.playerIds.length;
     this.startAlive = opts.startAlive ?? n;
     this.tieRng = new Rng(deriveSeed(opts.seed, 'tie', opts.roundIndex));
+    this.pickupRng = new Rng(deriveSeed(opts.seed, 'pickups', opts.roundIndex));
+    this.pickupNextAt = config.collapse.grace;
     this.playerScale = config.collapse.playerCountScale[String(n) as '2'] ?? 1;
 
     // ---- بلاطات ----
@@ -157,6 +166,7 @@ export class ArenaSim {
         inputZ: 0,
         wantDash: false,
         wantItem: false,
+        wantItemSlot: 0,
         faceX: Math.cos((-Math.PI / 2) + (order[i] * 2 * Math.PI) / n),
         faceZ: Math.sin((-Math.PI / 2) + (order[i] * 2 * Math.PI) / n),
         dashReadyAt: 0,
@@ -165,7 +175,7 @@ export class ArenaSim {
         onGround: true,
         lastHitBy: null,
         lastHitAt: -999,
-        item: null,
+        items: [],
         lastItem: null,
         itemActiveUntil: 0,
         chargeUsed: false,
@@ -188,7 +198,7 @@ export class ArenaSim {
     return this.players.find((p) => p.id === id);
   }
 
-  setInput(id: string, x: number, z: number, dash: boolean, item: boolean) {
+  setInput(id: string, x: number, z: number, dash: boolean, item: boolean, slot = 0) {
     const p = this.byId(id);
     if (!p || !p.alive) return;
     // لا يُصدَّق أي رقم من العميل سوى اتجاه مقصوص إلى طول 1
@@ -204,7 +214,10 @@ export class ArenaSim {
       p.faceZ = z;
     }
     if (dash) p.wantDash = true;
-    if (item) p.wantItem = true;
+    if (item) {
+      p.wantItem = true;
+      p.wantItemSlot = slot;
+    }
   }
 
   private suddenDeath(): boolean {
@@ -294,11 +307,13 @@ export class ArenaSim {
   }
 
   // ---------------------------------------------------------------- الأدوات
-  private useItem(p: SimPlayer) {
-    if (!p.item || !p.alive) return;
+  private useItem(p: SimPlayer, slot = 0) {
+    if (!p.alive) return;
     if (p.itemActiveUntil > this.t) return; // مفعّلة بالفعل
-    const item = p.item;
-    p.item = null;
+    const idx = slot >= 0 && slot < p.items.length ? slot : 0;
+    const item = p.items[idx];
+    if (!item || !ITEM_IDS.includes(item)) return;
+    p.items.splice(idx, 1);
     // الأداة المفعّلة هي المرجع (كان يعتمد على lastItem من giveItems فقط)
     p.lastItem = item;
     switch (item) {
@@ -325,6 +340,46 @@ export class ArenaSim {
     this.emit({ type: 'item', id: p.id, itemType: item, x: p.x, z: p.z });
   }
 
+  /** بيكابات في سلاسل متماثلة حول المركز: تجبر على الحركة وتقتل استراتيجية السكون */
+  private updatePickups() {
+    if (!config.pickups.enabled) return;
+    // إسقاط ما وقع على بلاطة ذهبت
+    this.pickups = this.pickups.filter((pk) => {
+      const t = tileAt(pk.x, pk.z);
+      return !!t && this.tileStates[t.id] !== GONE;
+    });
+
+    if (this.t >= this.pickupNextAt) {
+      this.pickupNextAt = this.t + config.pickups.intervalSec;
+      const solid = TILES.filter((t) => this.tileStates[t.id] === SOLID && t.ring > 0);
+      if (solid.length) {
+        const pick = solid[Math.floor(this.pickupRng.f() * solid.length)];
+        const pool = config.pickups.itemPool as ItemId[];
+        const chain = [
+          { x: pick.x, z: pick.z },
+          { x: -pick.x, z: -pick.z }, // المرآة: لا أفضلية لجانب
+        ].slice(0, config.pickups.perChain);
+        for (const pos of chain) {
+          const item = pool[Math.floor(this.pickupRng.f() * pool.length)];
+          this.pickups.push({ id: this.pickupSeq++, x: pos.x, z: pos.z, item, bornAt: this.t });
+        }
+        this.emit({ type: 'warn', s: 0 }); // نبضة بصرية خفيفة
+      }
+    }
+
+    for (const pk of [...this.pickups]) {
+      for (const p of this.players) {
+        if (!p.alive) continue;
+        if (p.items.length >= config.items.maxSlots) continue;
+        if (Math.hypot(p.x - pk.x, p.z - pk.z) > config.pickups.radius) continue;
+        p.items.push(pk.item);
+        this.pickups = this.pickups.filter((q) => q !== pk);
+        this.emit({ type: 'pickup', id: p.id, itemType: pk.item, x: pk.x, z: pk.z });
+        break;
+      }
+    }
+  }
+
   private isShielded(p: SimPlayer): boolean {
     return p.itemActiveUntil > this.t && p.lastItem === 'shield';
   }
@@ -334,12 +389,13 @@ export class ArenaSim {
     if (dt <= 0) return;
     this.t += dt;
     this.updateCollapse();
+    this.updatePickups();
 
     for (const p of this.players) {
       if (!p.alive) continue;
       if (p.wantItem) {
         p.wantItem = false;
-        this.useItem(p);
+        this.useItem(p, p.wantItemSlot);
       }
       this.integrate(p, dt);
     }
@@ -479,14 +535,22 @@ export class ArenaSim {
           const last = attacker.touchAt.get(victim.id) ?? -999;
           if (now - last < 0.25) return;
           attacker.touchAt.set(victim.id, now);
-          const shielded = this.isShielded(victim) || this.isShielded(attacker);
           let push = config.dash.bonus;
-          if (attacker.itemActiveUntil > now && attacker.lastItem === 'charge' && !attacker.chargeUsed) {
+          const charged = attacker.itemActiveUntil > now && attacker.lastItem === 'charge' && !attacker.chargeUsed;
+          if (charged) {
             push *= config.items.charge.multiplier;
             chargedHit = true;
             attacker.chargeUsed = true;
             attacker.itemActiveUntil = 0;
           }
+          // نظام بلور: لكل قوة مضادّها — الضربة المشحونة **تكسّر** الدرع
+          let victimShield = this.isShielded(victim);
+          if (charged && victimShield) {
+            victim.itemActiveUntil = 0;
+            victimShield = false;
+            this.emit({ type: 'warn', s: 0, x: victim.x, z: victim.z });
+          }
+          const shielded = victimShield || this.isShielded(attacker);
           if (!shielded) {
             victim.vx += sx * push;
             victim.vz += sz * push;
@@ -555,7 +619,7 @@ export class ArenaSim {
     if (dying.length > 1) {
       const key = (p: SimPlayer) => Math.max(Math.abs(p.x), Math.abs(p.z));
       // تعادل تام (مسافة متساوية): قرعة مبذورة — عادلة في التوقّع لا محسومة لأحد
-      const tie = new Map(dying.map((p) => [p.id, this.tieRng.next()]));
+      const tie = new Map(dying.map((p) => [p.id, this.tieRng.f()]));
       dying.sort((a, b) => key(b) - key(a) || tie.get(a.id)! - tie.get(b.id)!);
     }
     for (const p of dying) {
@@ -566,11 +630,12 @@ export class ArenaSim {
   }
 
   /** يُستدعى عند بداية الحلبة لتوزيع الأدوات المختارة */
-  giveItems(map: Record<string, ItemId | null>) {
+  giveItems(map: Record<string, ItemId | ItemId[] | null>) {
     for (const p of this.players) {
-      const it = map[p.id] ?? null;
-      p.item = it && ITEM_IDS.includes(it) ? it : null;
-      if (it) p.lastItem = it;
+      const raw = map[p.id] ?? null;
+      const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      p.items = list.filter((it) => ITEM_IDS.includes(it)).slice(0, config.items.maxSlots);
+      if (p.items.length) p.lastItem = p.items[0];
     }
   }
 }

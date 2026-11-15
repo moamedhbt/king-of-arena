@@ -195,10 +195,10 @@ export class Net extends Emitter {
   predict(id: string) {
     this.socket.emit('predict', { playerId: id });
   }
-  sendInput(x: number, z: number, dash: boolean, item: boolean) {
+  sendInput(x: number, z: number, dash: boolean, item: boolean, slot = 0) {
     // رسالة واحدة فقط كل 50ms — RTT يُرفَق بها بدل رسالة منفصلة
     // (رسالتان كانتا تضاعفان المعدل إلى 40/ث وتتجاوز حد الخادم 30/ث)
-    this.socket.emit('input', { seq: 0, x, z, dash, item, rtt: Math.round(this.rtt) });
+    this.socket.emit('input', { seq: 0, x, z, dash, item, slot, rtt: Math.round(this.rtt) });
   }
   leave() {
     this.socket.emit('room:leave');

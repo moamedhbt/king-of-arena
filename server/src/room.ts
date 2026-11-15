@@ -570,9 +570,9 @@ export class Room {
     this.enterPhase('ARENA_INTRO', config.phase.arenaIntro * 1000);
   }
 
-  feedInput(playerId: string, m: { seq?: number; x?: number; z?: number; dash?: boolean; item?: boolean }) {
+  feedInput(playerId: string, m: { seq?: number; x?: number; z?: number; dash?: boolean; item?: boolean; slot?: number }) {
     if (!this.sim || this.phase !== 'ARENA') return;
-    this.sim.setInput(playerId, Number(m.x) || 0, Number(m.z) || 0, !!m.dash, !!m.item);
+    this.sim.setInput(playerId, Number(m.x) || 0, Number(m.z) || 0, !!m.dash, !!m.item, Number(m.slot) || 0);
   }
 
   predict(playerId: string, targetId: string) {
@@ -809,7 +809,8 @@ export class Room {
       y: round3(p.y),
       z: round3(p.z),
       a: p.alive ? 1 : 0,
-      it: p.item,
+      it: p.items[0] ?? null,
+      its: p.items.slice(),
       ia: p.itemActiveUntil > sim.t ? p.lastItem : null,
       iat: Math.round(Math.max(0, p.itemActiveUntil - sim.t) * 10) / 10,
       at: p.anchorUntil > sim.t && p.anchorTile !== null ? p.anchorTile : -1,
@@ -818,7 +819,13 @@ export class Room {
       fz: round3(p.faceZ),
       off: this.players.get(p.id)?.connected ? 0 : 1,
     }));
-    const msg = { t: Date.now(), tick: this.tickCount, players, tiles: sim.tileStatesString() };
+    const msg = {
+      t: Date.now(),
+      tick: this.tickCount,
+      players,
+      tiles: sim.tileStatesString(),
+      pk: sim.pickups.map((q) => ({ i: q.item, x: Math.round(q.x * 100) / 100, z: Math.round(q.z * 100) / 100 })),
+    };
     this.broadcast('snap', msg);
   }
 

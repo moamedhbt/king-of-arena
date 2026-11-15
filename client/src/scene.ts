@@ -47,6 +47,13 @@ export class ArenaScene {
   private renderTime = 0;
   private flashUntil = 0;
   private containers = new THREE.Group();
+  private pickupMeshes: THREE.Mesh[] = [];
+  private static ITEM_COLORS: Record<string, number> = {
+    charge: 0xffd23f,
+    shield: 0x59c8ff,
+    anchor: 0x8bf07a,
+    jump: 0xb6f06a,
+  };
   private clock = new THREE.Clock();
   // تخفيض تلقائي للدقة إن تأخر الإطار (هدف 60 إطارًا على الهواتف المتوسطة)
   private frameAcc = 0;
@@ -71,6 +78,7 @@ export class ArenaScene {
     this.buildArena();
     this.buildDust();
     this.buildSparks();
+    this.buildPickups();
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -230,6 +238,39 @@ export class ArenaScene {
   /** انفجار أثر عند الإصابة أو التفعيل */
   burst(x: number, z: number, n = 16) {
     this.emitSparks(x, 0.9, z, n, 6);
+  }
+
+  /** بيكابات الأدوات: جواهر متوهحة تدور وتطفو */
+  private buildPickups() {
+    const geo = new THREE.OctahedronGeometry(0.8, 0);
+    for (let i = 0; i < 10; i++) {
+      const m = new THREE.Mesh(
+        geo,
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      m.visible = false;
+      m.frustumCulled = false;
+      this.containers.add(m);
+      this.pickupMeshes.push(m);
+    }
+  }
+
+  private syncPickups(snaps: Snap[], now: number) {
+    const latest = snaps.length ? snaps[snaps.length - 1] : null;
+    const list = latest?.pk ?? [];
+    for (let i = 0; i < this.pickupMeshes.length; i++) {
+      const m = this.pickupMeshes[i];
+      const d = list[i];
+      if (!d) {
+        m.visible = false;
+        continue;
+      }
+      m.visible = true;
+      m.position.set(d.x, 1.5 + Math.sin(now * 0.003 + i * 1.7) * 0.28, d.z);
+      m.rotation.y = now * 0.002 + i;
+      m.rotation.x = Math.sin(now * 0.0015 + i) * 0.4;
+      (m.material as THREE.MeshBasicMaterial).color.setHex(ArenaScene.ITEM_COLORS[d.i] ?? 0xffffff);
+    }
   }
 
   private buildDust() {
@@ -441,6 +482,7 @@ export class ArenaScene {
     const interp = this.interpolate(net.snaps, this.renderTime);
     this.syncPlayers(net, interp, dt);
     this.syncTiles(net.snaps, now);
+    this.syncPickups(net.snaps, now);
     this.updateDust(dt);
     this.updateSparks(dt);
     this.applyShake(now);

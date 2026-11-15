@@ -387,26 +387,34 @@ export class UI {
     $('#dashFill').style.transform = `scaleY(${Math.max(0, 1 - dc)})`;
     $('#dashBtn').classList.toggle('ready', dc >= 1);
 
-    // الأداة: من اللقطة إن وُجدت، وإلا من نتيجة الاختيار (بين DRAFT و ARENA)
-    const item = me ? me.it : this.myItem;
-    const active = me?.ia ?? null;
-    const btn = $('#itemBtn');
-    const label = $('#itemLabel');
-    const show = item ?? active;
-    if (active) {
-      const total = (config.items as any)?.[active]?.duration ?? 1;
-      const left = Math.max(0, me?.iat ?? total);
-      btn.style.setProperty('--p', String(Math.max(0, Math.min(1, left / total))));
-      label.innerHTML = `${itemIcon(active)}<div style="font-size:10px">${left.toFixed(1)}</div>`;
-    } else if (item) {
-      label.innerHTML = `${itemIcon(item)}<div style="font-size:10px">${t('item.' + item)}</div>`;
-    } else {
-      label.innerHTML = '';
+    // الأداة: فتحتان (نظام بلور) — من اللقطة إن وُجدت، وإلا من نتيجة الاختيار
+    const live = !!me;
+    const inv: (ItemId | null)[] = live
+      ? (me!.its ?? (me!.it ? [me!.it] : []))
+      : this.myItem
+        ? [this.myItem]
+        : [];
+    const activeItem = me?.ia ?? null;
+    for (let i = 0; i < 2; i++) {
+      const btn = $(`#itemBtn${i}`);
+      const label = $(`#itemLabel${i}`);
+      const it = inv[i] ?? null;
+      const isActiveSlot = i === 0 && !!activeItem;
+      if (isActiveSlot) {
+        const total = (config.items as any)?.[activeItem]?.duration ?? 1;
+        const left = Math.max(0, me?.iat ?? total);
+        btn.style.setProperty('--p', String(Math.max(0, Math.min(1, left / total))));
+        label.innerHTML = `${itemIcon(activeItem)}<div style="font-size:10px">${left.toFixed(1)}</div>`;
+      } else if (it) {
+        label.innerHTML = `${itemIcon(it)}<div style="font-size:10px">${t('item.' + it)}</div>`;
+      } else {
+        label.innerHTML = '';
+      }
+      btn.classList.toggle('ready', !isActiveSlot && !!it);
+      btn.classList.toggle('active', isActiveSlot);
+      btn.classList.toggle('used', !it && !isActiveSlot);
+      btn.setAttribute('aria-label', it ? t('item.' + it) : '');
     }
-    btn.classList.toggle('ready', !!item);
-    btn.classList.toggle('active', !!active);
-    btn.classList.toggle('used', !item && !active);
-    btn.setAttribute('aria-label', show ? t('item.' + show) : '');
   }
 
   /** بطاقة 2 ثانية بعد مرحلة الاختيار: ماذا حصلت عليه ولماذا */

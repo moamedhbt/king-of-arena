@@ -159,6 +159,8 @@
       .abtn.item.used { opacity: 0; transform: scale(0.8); pointer-events: none; }
       @keyframes itemPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
 
+      #itemSlots { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+      .abtn.item.sm { width: 62px; height: 62px; }
       #grantHost { position: absolute; inset: 0; pointer-events: none; z-index: 26; }
       /* ---------- بطاقة «حصلت على» ---------- */
       .grant {
@@ -367,7 +369,10 @@
           <div id="joystick"><div id="stick"></div></div>
           <div id="actions">
             <button class="abtn" id="dashBtn"><span>اندفاع</span><div class="fill" id="dashFill"></div></button>
-            <button class="abtn item" id="itemBtn"><span id="itemLabel">—</span></button>
+            <div id="itemSlots">
+              <button class="abtn item" id="itemBtn0"><span id="itemLabel0">—</span></button>
+              <button class="abtn item sm" id="itemBtn1"><span id="itemLabel1">—</span></button>
+            </div>
           </div>
         </div>
         <div id="toast"></div>

@@ -8,7 +8,7 @@ export class Controls {
   z = 0;
   private keys = new Set<string>();
   private dashQueued = false;
-  private itemQueued = false;
+  private itemQueued = -1; // فتحة الأداة المطلوبة (-1 = لا شيء)
   private joyActive = false;
   private joyId = -1;
   private joyVec = { x: 0, z: 0 };
@@ -20,7 +20,7 @@ export class Controls {
     private joystick: HTMLElement,
     private stick: HTMLElement,
     private dashBtn: HTMLElement,
-    private itemBtn: HTMLElement
+    private itemBtns: HTMLElement[]
   ) {
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
@@ -30,7 +30,8 @@ export class Controls {
         this.queueDash();
         e.preventDefault();
       }
-      if (k === 'e') this.queueItem();
+      if (k === 'e') this.queueItem(0);
+      if (k === 'q') this.queueItem(1);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
     window.addEventListener('blur', () => this.keys.clear());
@@ -63,7 +64,9 @@ export class Controls {
       fn();
     };
     this.dashBtn.addEventListener('pointerdown', tap(() => this.queueDash()));
-    this.itemBtn.addEventListener('pointerdown', tap(() => this.queueItem()));
+    this.itemBtns.forEach((btn, i) => {
+      btn.addEventListener('pointerdown', tap(() => this.queueItem(i)));
+    });
   }
 
   private updateJoy(e: PointerEvent) {
@@ -90,8 +93,8 @@ export class Controls {
     this.dashQueued = true;
     this.onDash?.();
   }
-  private queueItem() {
-    this.itemQueued = true;
+  private queueItem(slot: number) {
+    this.itemQueued = slot;
     this.onItem?.();
   }
 
@@ -117,14 +120,15 @@ export class Controls {
     this.dashQueued = false;
     return v;
   }
-  consumeItem(): boolean {
+  /** يعيد فتحة الأداة المطلوبة أو -1 */
+  consumeItem(): number {
     const v = this.itemQueued;
-    this.itemQueued = false;
+    this.itemQueued = -1;
     return v;
   }
   reset() {
     this.dashQueued = false;
-    this.itemQueued = false;
+    this.itemQueued = -1;
     this.keys.clear();
     this.joyVec = { x: 0, z: 0 };
   }

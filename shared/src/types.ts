@@ -59,8 +59,10 @@ export interface SnapPlayer {
   z: number;
   /** 0 = ميت، 1 = حي */
   a: number;
-  /** الأداة المتبقية، null إن لا شيء */
+  /** الأداة المتبقية، null إن لا شيء (الفتحة الأولى) */
   it: ItemId | null;
+  /** مخزون الأدوات كاملًا (حتى maxSlots) */
+  its?: ItemId[];
   /** الأداة مفعّلة */
   ia: ItemId | null;
   /** الثواني المتبقية من الأداة المفعّلة (0 إن لا شيء) */
@@ -83,6 +85,8 @@ export interface Snap {
   players: SnapPlayer[];
   /** 81 حرفًا: 0 صلبة، 1 تحذير، 2 ساقطة، 3 ذهبت */
   tiles: string;
+  /** بيكابات الأدوات الملقاة في الحلبة */
+  pk?: Array<{ i: ItemId; x: number; z: number }>;
 }
 
 export type SfxType =

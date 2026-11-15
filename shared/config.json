@@ -161,13 +161,20 @@
     },
     "jump": {
       "impulse": 11
-    }
+    },
+    "maxSlots": 2
   },
   "pickups": {
-    "enabled": false,
-    "startAtSec": 10,
-    "everySec": 15,
-    "maxItems": 2
+    "enabled": true,
+    "intervalSec": 9,
+    "perChain": 2,
+    "radius": 2.2,
+    "itemPool": [
+      "charge",
+      "shield",
+      "anchor",
+      "jump"
+    ]
   },
   "ui": {
     "audioDefault": true,

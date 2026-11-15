@@ -39,7 +39,7 @@ function dashImpact(item: ItemId | null): { speed: number; charged: boolean } {
   const sim = newSim();
   const a = sim.byId('a')!;
   const b = sim.byId('b')!;
-  if (item) a.item = item;
+  if (item) a.items = [item];
   sim.setInput('a', 0, 1, true, !!item); // اتجاه +z مع اندفاع + تفعيل الأداة
   sim.setInput('b', 0, 0, false, false);
   let speed = 0;
@@ -74,12 +74,11 @@ console.log('— أثر الأدوات في الفيزياء —');
   const sim = newSim();
   const a = sim.byId('a')!;
   const b = sim.byId('b')!;
-  b.item = 'shield';
+  b.items = ['shield'];
   sim.setInput('b', 0, 0, false, true);
   sim.step(DT);
   const shieldActive = sim.byId('b')!.itemActiveUntil > sim.t;
-  a.item = 'charge';
-  sim.setInput('a', 0, 1, true, true);
+  sim.setInput('a', 0, 1, true, false); // اندفاع عادي
   let maxB = 0;
   for (let i = 0; i < 20; i++) {
     sim.step(DT);
@@ -87,13 +86,32 @@ console.log('— أثر الأدوات في الفيزياء —');
   }
   if (!shieldActive) fail('الدرع', 'الدرع لم يُفعّل');
   else if (maxB > 1.0) fail('الدرع', `الدفع وصل رغم الدرع: سرعة ${maxB.toFixed(2)}`);
-  else ok('الدرع/الامتصاص', `المدعوم لم يتحرك (${maxB.toFixed(2)}) — حتى مع ضربة مشحونة`);
+  else ok('الدرع/الامتصاص', `صدّ الضربة العادية (${maxB.toFixed(2)})`);
+
+  // (ج) المضادّ: الضربة المشحونة تكسر الدرع
+  const sim3 = newSim();
+  const a3 = sim3.byId('a')!;
+  const b3 = sim3.byId('b')!;
+  b3.items = ['shield'];
+  sim3.setInput('b', 0, 0, false, true);
+  sim3.step(DT);
+  a3.items = ['charge'];
+  sim3.setInput('a', 0, 1, true, true);
+  let maxB3 = 0;
+  for (let i = 0; i < 20; i++) {
+    sim3.step(DT);
+    maxB3 = Math.max(maxB3, Math.hypot(b3.vx, b3.vz));
+  }
+  const broke = sim3.byId('b')!.itemActiveUntil <= sim3.t;
+  if (!broke) fail('المضادّ', 'الضربة المشحونة لم تكسر الدرع');
+  else if (maxB3 < 2) fail('المضادّ', `الدرع انكسر لكن دون دفع (${maxB3.toFixed(2)})`);
+  else ok('المضادّ', `الضربة المشحونة كسرت الدرع ودفعته (${maxB3.toFixed(2)})`);
 
   // (ب) المدعوم هو من يندفع → لا يدفع خصمه
   const sim2 = newSim();
   const a2 = sim2.byId('a')!;
   const b2 = sim2.byId('b')!;
-  b2.item = 'shield';
+  b2.items = ['shield'];
   sim2.setInput('b', 0, 0, false, true);
   sim2.step(DT);
   b2.z = a2.z + config.physics.radius * 2 * 0.97; // يقفز فوق a2
@@ -123,7 +141,7 @@ console.log('— أثر الأدوات في الفيزياء —');
     if (t && sim.tileStates[t.id] !== 0) warned = true;
   }
   const tile = TILES.find((tt) => Math.abs(tt.x - a.x) < 0.9 && Math.abs(tt.z - a.z) < 0.9)!;
-  a.item = 'anchor';
+  a.items = ['anchor'];
   sim.setInput('a', 0, 0, false, true);
   sim.step(DT);
   const anchored = sim.byId('a')!.anchorUntil > sim.t;
@@ -147,7 +165,7 @@ console.log('— أثر الأدوات في الفيزياء —');
     p.vx = 0;
     p.vz = 0;
     if (anchor) {
-      p.item = 'anchor';
+      p.items = ['anchor'];
       s2.setInput('a', 0, 0, false, true);
       s2.step(DT);
     }
@@ -168,7 +186,7 @@ console.log('— أثر الأدوات في الفيزياء —');
   const sim = newSim(321);
   const a = sim.byId('a')!;
   sim.byId('b')!.alive = false;
-  a.item = 'jump';
+  a.items = ['jump'];
   sim.setInput('a', 0, 0, false, true);
   sim.step(DT);
   let peak = 0;
@@ -176,7 +194,7 @@ console.log('— أثر الأدوات في الفيزياء —');
     sim.step(DT);
     peak = Math.max(peak, sim.byId('a')!.y);
   }
-  const used = sim.byId('a')!.item === null;
+  const used = sim.byId('a')!.items.length === 0;
   if (!used) fail('القفزة', 'الأداة لم تُستهلك');
   else if (peak <= 1) fail('القفزة', `الارتفاع الأقصى ${peak.toFixed(2)} (المطلوب > 1)`);
   else ok('القفزة', `ذروة الارتفاع ${peak.toFixed(2)}`);
@@ -187,7 +205,7 @@ console.log('— أثر الأدوات في الفيزياء —');
   const sim = newSim(55);
   const a = sim.byId('a')!;
   sim.byId('b')!.alive = false;
-  a.item = 'jump';
+  a.items = ['jump'];
   sim.setInput('a', 0, 0, false, true);
   sim.step(DT);
   const firstVy = sim.byId('a')!.vy;
