@@ -76,6 +76,8 @@ export interface SnapPlayer {
   fz: number;
   /** مطرود؟ (منقطع) */
   off?: number;
+  /** نقاط الحقل (سيطرة + إسقاط بلغم) */
+  rp?: number;
 }
 
 export interface Snap {
@@ -87,6 +89,10 @@ export interface Snap {
   tiles: string;
   /** بيكابات الأدوات الملقاة في الحلبة */
   pk?: Array<{ i: ItemId; x: number; z: number }>;
+  /** البلاطات المكشوفة: n = 0..8 رقم، 9 لغم منفجر */
+  mn?: Array<{ i: number; n: number }>;
+  /** مناطق السيطرة: o = صاحب السيطرة (null = لا أحد أو متعددون) */
+  zn?: Array<{ i: number; o: string | null }>;
 }
 
 export type SfxType =
@@ -136,6 +142,10 @@ export interface RoundResultRow {
   predictBonus: number;
   roundPoints: number;
   totalScore: number;
+  /** نقاط حقل الملوك: سيطرة + إسقاط بلغم */
+  field?: number;
+  /** تفصيل مقروء لسبب النقاط (سيطرة/إسقاط/انفجار) */
+  fieldWhy?: string;
   /** سبب السقوط: pushed | collapse | timeout | null إن نجا */
   deathCause: 'pushed' | 'collapse' | 'timeout' | null;
   killedByName: string | null;

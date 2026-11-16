@@ -6,6 +6,10 @@ import { runBotRound } from './bots';
 import { ArenaSim } from '../server/src/sim';
 import { config, TILES } from '../shared/src/index';
 
+// هذه المجموعة تختبر وضع «انهيار الأرضية» الكلاسيكي صراحةً (الوضع الافتراضي الآن هو حقل الملوك)
+config.collapse.enabled = true;
+config.mines.enabled = false;
+
 let failures = 0;
 const fail = (m: string) => {
   failures++;
@@ -25,7 +29,8 @@ for (let i = 0; i < N8; i++) {
   if (r.durationSec >= config.phase.arenaMax + config.phase.finaleFallSec + 2) {
     fail(`جولة ${i} تجاوزت الحد: ${r.durationSec.toFixed(1)}s`);
   }
-  if (r.aliveCount !== 1 && r.tilesLeft > 1) {
+  // تنتهي الجولة إذا بقي واحد أو لم يبقَ أحد (سقوط متزامن مشروع) أو فنيت البلاطات
+  if (r.aliveCount > 1 && r.tilesLeft > 1) {
     fail(`جولة ${i} لم تنتهِ بشكل صحيح (أحياء=${r.aliveCount}, بلاطات=${r.tilesLeft})`);
   }
 }

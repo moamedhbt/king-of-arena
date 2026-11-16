@@ -106,7 +106,8 @@
       }
     ],
     "finaleSec": 4.5,
-    "finaleWarnSec": 2.5
+    "finaleWarnSec": 2.5,
+    "enabled": false
   },
   "scoring": {
     "survivalMax": 10,
@@ -182,5 +183,37 @@
     "vibrationDefault": true,
     "hitStopMs": 70,
     "shakeSec": 0.25
+  },
+  "mines": {
+    "enabled": true,
+    "count": 12,
+    "stunSec": 1.5,
+    "knockback": 16,
+    "ambushBonus": 3,
+    "ambushWindowSec": 2.5,
+    "zoneScorePerSec": 1,
+    "zones": [
+      [
+        0,
+        0
+      ],
+      [
+        3,
+        0
+      ],
+      [
+        -3,
+        0
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        0,
+        -3
+      ]
+    ],
+    "clampRadius": true
   }
 }

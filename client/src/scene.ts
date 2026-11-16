@@ -41,6 +41,16 @@ export class ArenaScene {
   private fallAt = new Array<number>(TILE_COUNT).fill(-1);
   private dummy = new THREE.Object3D();
   private clouds = new THREE.Group();
+  // حقل الملوك: أرقام مشتركة + حفر + مناطق سيطرة
+  private numberSprites: THREE.Sprite[] = [];
+  private digitMats: Map<number, THREE.MeshBasicMaterial> = new Map();
+  /** لون البلاطة المكشوفة حسب عدد الألغام المجاورة (0 = لم تُكشف) */
+  private revealedTint = new Array<number>(TILE_COUNT).fill(0);
+  private craters: THREE.Mesh[] = [];
+  private zonePads: THREE.Mesh[] = [];
+  private digitTex = new Map<number, THREE.Texture>();
+  private digitsDrawn = -1;
+  private craterDrawn = -1;
   private braziers: THREE.Mesh[] = [];
   private torchLight: THREE.PointLight | null = null;
   private color = new THREE.Color();
@@ -93,6 +103,7 @@ export class ArenaScene {
     this.buildDust();
     this.buildSparks();
     this.buildPickups();
+    this.buildField();
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -379,6 +390,149 @@ export class ArenaScene {
     this.torchLight = torch;
   }
 
+  /** أرقام الألغام (كريم على أسود) + حفر الانفجار + حلقات مناطق السيطرة */
+  private buildField() {
+    const planeGeo = new THREE.PlaneGeometry(2.9, 2.9);
+    this.digitMats = new Map<number, THREE.MeshBasicMaterial>();
+    for (let i = 0; i < TILE_COUNT; i++) {
+      const m = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false }));
+      m.rotation.x = -Math.PI / 2;
+      m.visible = false;
+      this.containers.add(m);
+      this.numberSprites.push(m as unknown as THREE.Sprite);
+    }
+    const craterGeo = new THREE.CircleGeometry(1.7, 20);
+    for (let i = 0; i < TILE_COUNT; i++) {
+      const m = new THREE.Mesh(
+        craterGeo,
+        new THREE.MeshBasicMaterial({ color: 0x4a2114, transparent: true, opacity: 0.9, depthWrite: false })
+      );
+      m.rotation.x = -Math.PI / 2;
+      m.visible = false;
+      // حلقة جمر متوهجة حول الحفرة (بدل الفراغ الأسود)
+      const ember = new THREE.Mesh(
+        new THREE.RingGeometry(1.25, 1.75, 22),
+        new THREE.MeshBasicMaterial({
+          color: 0xff7a2a,
+          transparent: true,
+          opacity: 0.75,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        })
+      );
+      ember.position.y = 0.012;
+      m.add(ember);
+      this.containers.add(m);
+      this.craters.push(m);
+    }
+    // مناطق السيطرة من نفس إعدادات الخادم
+    const half = (config.arena.gridSize - 1) / 2;
+    for (const pair of (config as any).mines.zones as number[][]) {
+      const t = TILES.find((q) => q.gx === pair[0] + half && q.gz === pair[1] + half);
+      if (!t) continue;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(config.arena.tileSize * 0.28, config.arena.tileSize * 0.46, 28),
+        new THREE.MeshBasicMaterial({
+          color: 0xffc46a,
+          transparent: true,
+          opacity: 0.55,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(t.x, 0.06, t.z);
+      this.containers.add(ring);
+      this.zonePads.push(ring);
+    }
+  }
+
+  /** نسيج رقم (يُبنى مرة واحدة لكل رقم) */
+  private digitTexture(n: number): THREE.Texture {
+    const cached = this.digitTex.get(n);
+    if (cached) return cached;
+    const c = document.createElement('canvas');
+    c.width = c.height = 96;
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, 96, 96);
+    g.font = 'bold 74px system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineWidth = 9;
+    g.strokeStyle = 'rgba(10,10,14,0.95)';
+    g.strokeText(String(n), 48, 52);
+    g.fillStyle = n === 0 ? '#9fe8ff' : n <= 2 ? '#ffe9a8' : '#ff9d6b';
+    g.fillText(String(n), 48, 52);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.digitTex.set(n, tex);
+    return tex;
+  }
+
+  /** مزامنة كشف الألغام (تلوين البلاط + حفر) ومناطق السيطرة مع اللقطة */
+  private syncField(snap: Snap | null, now: number) {
+    const mn = snap?.mn ?? [];
+    let dirty = false;
+    for (const cell of mn) {
+      const t = TILES[cell.i];
+      if (!t) continue;
+      // ألوان الكشف: 0 آمن (فيروزي) ← 1 أصفر ← 2 كهرماني ← 3+ أحمر
+      const desired =
+        cell.n === 9 ? 0x7a4a33 : cell.n === 0 ? 0x9ff0d8 : cell.n === 1 ? 0xffe9a3 : cell.n === 2 ? 0xffb478 : 0xff7a5c;
+      if (this.revealedTint[cell.i] !== desired) {
+        this.revealedTint[cell.i] = desired;
+        this.renderedState[cell.i] = -9; // أجبر إعادة تلوين البلاطة
+        dirty = true;
+      }
+      // الرقم نفسه فوق البلاطة (مع التلوين)
+      const sp = this.numberSprites[cell.i] as unknown as THREE.Mesh;
+      if (sp) {
+        if (cell.n === 9) sp.visible = false;
+        else {
+          let mat = this.digitMats.get(cell.n);
+          if (!mat) {
+            mat = new THREE.MeshBasicMaterial({
+              map: this.digitTexture(cell.n),
+              transparent: true,
+              depthWrite: false,
+              depthTest: false,
+              toneMapped: false,
+            });
+            this.digitMats.set(cell.n, mat);
+          }
+          if (sp.material !== mat) sp.material = mat;
+          sp.position.set(t.x, 0.14, t.z);
+          sp.renderOrder = 7;
+          sp.visible = true;
+        }
+      }
+      const cr = this.craters[cell.i];
+      if (cr) {
+        if (cell.n === 9 && !cr.visible) {
+          cr.visible = true;
+          cr.position.set(t.x, 0.05, t.z);
+        } else if (cell.n !== 9 && cr.visible) cr.visible = false;
+      }
+    }
+    void dirty;
+
+    // مناطق السيطرة: لون صاحبها أو كهرماني محايد
+    const zn = snap?.zn ?? [];
+    if (zn.length && !(this as any)._zoneOwner) (this as any)._zoneOwner = new Map<string, string>();
+    const ownerColor: Map<string, string> = (this as any)._zoneOwner ?? new Map();
+    if (this.net0) for (const p of this.net0.state.players) ownerColor.set(p.id, p.color);
+    for (const z of zn) {
+      const pad = this.zonePads[z.i];
+      if (!pad) continue;
+      const m = pad.material as THREE.MeshBasicMaterial;
+      const c = z.o ? ownerColor.get(z.o) : null;
+      m.color.set(c ?? 0xffc46a);
+      m.opacity = (c ? 0.85 : 0.4) + Math.sin(now * 0.004) * 0.12;
+    }
+  }
+
   private buildPickups() {
     const geo = new THREE.OctahedronGeometry(0.8, 0);
     for (let i = 0; i < 10; i++) {
@@ -659,6 +813,7 @@ export class ArenaScene {
     this.syncPlayers(net, interp, dt);
     this.syncTiles(net.snaps, now);
     this.syncPickups(net.snaps, now);
+    this.syncField(net.snaps.length ? net.snaps[net.snaps.length - 1] : null, now);
     this.updateDust(dt);
     this.updateSparks(dt);
     this.applyShake(now);
@@ -927,7 +1082,7 @@ export class ArenaScene {
       const st = this.tileStates[i];
       const animating = st === 1 || (st === 2 && this.fallAt[i] > 0);
       // البلاطة الثابتة تُرسم مرة واحدة فقط
-      if (!animating && this.renderedState[i] === st) continue;
+      if (!animating && this.renderedState[i] === st && st !== 0) continue;
       const t = TILES[i];
       let y = -config.arena.tileThickness / 2;
       let rot = 0;
@@ -981,7 +1136,8 @@ export class ArenaScene {
       if (st === 0) {
         const dark = (t.gx + t.gz) % 2 === 0;
         const vv = 0.9 + ((Math.sin(i * 12.9898) * 43758.5453) % 1) * 0.2;
-        this.color.setHex(dark ? 0xf2ece0 : 0xdfd7c8).multiplyScalar(vv);
+        const tint = this.revealedTint[i];
+        this.color.setHex(tint || (dark ? 0xf2ece0 : 0xdfd7c8)).multiplyScalar(vv);
         this.tileMesh.setColorAt(i, this.color);
         if (this.tileMesh.instanceColor) this.tileMesh.instanceColor.needsUpdate = true;
       }

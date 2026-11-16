@@ -176,6 +176,17 @@ export class UI {
       this.lastItems = s.phaseData?.items ?? this.lastItems;
       const mine = this.lastItems[s.youId ?? ''] ?? null;
       this.toast(mine ? `${t('item.' + mine)} — ${t('item.' + mine + '.desc')}` : t('draft.none'), 3000);
+      if ((config as any).mines?.enabled) {
+        // تذكير بالقواعد: مرة واحدة في بداية كل حلبة
+        setTimeout(
+          () =>
+            this.toast(
+              'الأرض لا تنهار — تحتها ألغام. امشِ لتكشف الأرقام (عدد الألغام المجاورة)، وقف وحدك داخل حلقة لتجمع نقطة كل ثانية.',
+              4200
+            ),
+          2600
+        );
+      }
     } else if (name === 'ARENA') {
       this.clearOverlay();
       this.audio.setTheme('arena');
@@ -373,7 +384,8 @@ export class UI {
       nm.textContent = p.name;
       const sc = document.createElement('span');
       sc.className = 'sc';
-      sc.textContent = String(Math.round(p.score * 10) / 10);
+      const rp = snap?.players.find((q) => q.id === p.id)?.rp ?? 0;
+      sc.textContent = rp > 0 ? `${Math.round(p.score * 10) / 10} · +${rp}` : String(Math.round(p.score * 10) / 10);
       row.append(dot, nm, sc);
       host.appendChild(row);
     }
@@ -482,7 +494,7 @@ export class UI {
     const lines = [
       `phase=${s.phase} round=${s.round}/${s.rounds} you=${(s.youId ?? '').slice(0, 6)}`,
       `item: have=${me?.it ?? '-'} pick=${this.myItem ?? '-'} active=${me?.ia ?? '-'} left=${me?.iat ?? 0}s`,
-      `snaps/s=${this.dbgRate} total=${this.net.snaps.length} rtt=${Math.round(this.net.rtt)}ms`,
+      `snaps/s=${this.dbgRate} total=${this.net.snaps.length} rtt=${Math.round(this.net.rtt)}ms mn=${snap?.mn?.length ?? 'none'} zn=${snap?.zn?.length ?? 'none'}`,
       `events:`,
       ...this.dbgEvents.map((d) => `  ${JSON.stringify(d.e).slice(0, 90)}`),
     ];
@@ -543,8 +555,9 @@ export class UI {
     panel.className = 'panel';
     const rows = r.rows
       .map((row) => {
-        const why =
-          row.deathCause === 'pushed' && row.killedByName
+        const why = row.fieldWhy
+          ? row.fieldWhy
+          : row.deathCause === 'pushed' && row.killedByName
             ? t('result.whyPushed', { name: row.killedByName })
             : row.deathCause === 'timeout'
             ? t('result.whyTimeout')
@@ -552,6 +565,7 @@ export class UI {
             ? t('result.whyCollapse')
             : t('result.alive');
         const detail = [
+          row.field ? `الحقل +${row.field}` : '',
           `${t('result.survival')} ${row.survival}`,
           row.kos ? `${t('result.kos')} +${row.kos}` : '',
           row.puzzleBonus ? `${t('result.puzzle')} +${row.puzzleBonus}` : '',

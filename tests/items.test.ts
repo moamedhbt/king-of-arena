@@ -12,6 +12,10 @@
 import { ArenaSim } from '../server/src/sim';
 import { config, TILES, GONE as _G, type ItemId } from '../shared/src/index';
 
+// هذه المجموعة تختبر وضع «انهيار الأرضية» الكلاسيكي صراحةً (الوضع الافتراضي الآن هو حقل الملوك)
+config.collapse.enabled = true;
+config.mines.enabled = false;
+
 const DT = 1 / 30;
 let failures = 0;
 const fail = (name: string, msg: string) => {

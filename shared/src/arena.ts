@@ -104,3 +104,22 @@ export function spawnPositions(n: number): Array<{ x: number; z: number }> {
 export function ringTiles(ring: number): TileDef[] {
   return TILES.filter((t) => t.ring === ring);
 }
+
+/** البلاطة بإحداثيات الشبكة (أو null إن كانت مقطوعة) */
+export function tileByGrid(gx: number, gz: number): TileDef | null {
+  return BY_GRID.get(`${gx},${gz}`) ?? null;
+}
+
+/** جيران البلاطة الثمانية (كاسحة الألغام) */
+export function neighborsOf(id: number): number[] {
+  const t = TILES[id];
+  const out: number[] = [];
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dz) continue;
+      const n = BY_GRID.get(`${t.gx + dx},${t.gz + dz}`);
+      if (n) out.push(n.id);
+    }
+  }
+  return out;
+}

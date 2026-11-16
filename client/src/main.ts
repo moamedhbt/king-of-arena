@@ -219,6 +219,37 @@ function onGameEvent(e: any) {
       if (e.id !== me) audio.sfx('dash', 0.4);
       break;
     }
+    case 'mine': {
+      // انفجار لغم: غبار وشرارات + اهتزاز قوي
+      scene.burst(e.x ?? 0, e.z ?? 0, 26);
+      scene.burst(e.x ?? 0, e.z ?? 0, 14);
+      scene.shake(1, 0.3);
+      if (e.id === me) {
+        scene.hitStop(80);
+        ui.toast('انفجر لغم! تعطّلت ثانية ونصف', 1800);
+      } else if (e.by === me) {
+        ui.toast(`أسقطتَ ${'+3'}: ${'دفعته إلى لغم'}`, 1600);
+      }
+      break;
+    }
+    case 'reveal': {
+      if (typeof e.x === 'number') scene.burst(e.x, e.z ?? 0, 3);
+      // رقم البلاطة لمن كشفها (قريبًا منها)
+      const last = net.snaps[net.snaps.length - 1];
+      const mePos = last?.players.find((q) => q.id === me);
+      if (mePos && typeof e.x === 'number') {
+        const d = Math.hypot(mePos.x - e.x, mePos.z - (e.z ?? 0));
+        if (d < 5.5) {
+          const n = Number(e.s ?? 0);
+          ui.toast(n === 0 ? 'آمنة — لا ألغام مجاورة' : `تحذير: ${n} ألغام مجاورة`, 1100);
+        }
+      }
+      break;
+    }
+    case 'zone': {
+      if (e.id === me) ui.toast('تسيطر على منطقة!', 1200);
+      break;
+    }
     case 'pickup': {
       const it = (e.itemType ?? null) as ItemId | null;
       if (!it) break;

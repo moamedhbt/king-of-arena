@@ -9,6 +9,7 @@ const suites = [
   ['المحاكاة', 'tests/sim.test.ts'],
   ['الأدوات', 'tests/items.test.ts'],
   ['العدالة', 'tests/fairness.test.ts'],
+  ['حقل الملوك', 'tests/field.test.ts'],
   ['الشبكة الشاملة', 'tests/e2e.ts'],
 ];
 

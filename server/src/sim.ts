@@ -12,6 +12,7 @@ import {
   spawnPositions,
   CENTER_TILE,
   ITEM_IDS,
+  neighborsOf,
 } from '../../shared/src/index';
 import type { ItemId } from '../../shared/src/index';
 
@@ -20,7 +21,7 @@ export const WARNED = 1;
 export const GONE = 2;
 
 export interface SimEvent {
-  type: 'hit' | 'ko' | 'fall' | 'warn' | 'dash' | 'item' | 'pickup' | 'finale';
+  type: 'hit' | 'ko' | 'fall' | 'warn' | 'dash' | 'item' | 'pickup' | 'finale' | 'reveal' | 'mine' | 'zone';
   x?: number;
   z?: number;
   s?: number;
@@ -77,6 +78,13 @@ export interface SimPlayer {
 
   /** آخر لحظة تصادم مع كل لاعب، لمنع تعدد الضربات في نفس التلامس */
   touchAt: Map<string, number>;
+
+  /** شلل مؤقت (انفجار لغم) */
+  stunUntil: number;
+  /** آخر بلاطة وقف عليها (لكشف الأرقام مرة واحدة) */
+  lastTile: number;
+  /** كم لغمًا انفجر به (للملخّص) */
+  minesHit: number;
 }
 
 export interface SimOptions {
@@ -108,6 +116,18 @@ export class ArenaSim {
   private pickupSeq = 0;
   private pickupRng: Rng;
 
+  // ---- حقل الملوك: ألغام مخفية بأرقام مشتركة + مناطق سيطرة ----
+  /** كل البلاطات الملغومة (الخريطة الثابتة للجولة) */
+  mineTiles = new Set<number>();
+  /** الألغام التي لم تنفجر بعد */
+  armed = new Set<number>();
+  /** -1 مجهولة، 0..8 رقم مجاور، 9 لغم منفجر */
+  mineNum = new Int8Array(TILE_COUNT).fill(-1);
+  zones: Array<{ tile: number; x: number; z: number; owner: string | null }> = [];
+  /** نقاط الجولة: سيطرة + إسقاط بلغم */
+  points = new Map<string, number>();
+  private zoneAcc = 0;
+
   events: SimEvent[] = [];
   fallOrder: string[] = [];
 
@@ -123,6 +143,7 @@ export class ArenaSim {
     this.startAlive = opts.startAlive ?? n;
     this.tieRng = new Rng(deriveSeed(opts.seed, 'tie', opts.roundIndex));
     this.pickupRng = new Rng(deriveSeed(opts.seed, 'pickups', opts.roundIndex));
+    if (config.mines.enabled) this.initMines(new Rng(deriveSeed(opts.seed, 'mines', opts.roundIndex)), n);
     this.pickupNextAt = config.collapse.grace;
     this.playerScale = config.collapse.playerCountScale[String(n) as '2'] ?? 1;
 
@@ -182,8 +203,129 @@ export class ArenaSim {
         anchorTile: null,
         anchorUntil: 0,
         touchAt: new Map(),
+        stunUntil: 0,
+        lastTile: -1,
+        minesHit: 0,
       });
     });
+  }
+
+  /** توليد متماثل: كل لغم له توأم معكوس، والمناطق ونقاط البداية آمنة */
+  private initMines(rng: Rng, n: number) {
+    const half = (config.arena.gridSize - 1) / 2;
+    for (const pair of config.mines.zones as number[][]) {
+      const t = TILES.find((q) => q.gx === pair[0] + half && q.gz === pair[1] + half);
+      if (!t) continue;
+      this.zones.push({ tile: t.id, x: t.x, z: t.z, owner: null });
+    }
+    const zoneSet = new Set(this.zones.map((z) => z.tile));
+    const safe = new Set<number>();
+    for (const sp of spawnPositions(n)) {
+      const t = tileAt(sp.x, sp.z);
+      if (!t) continue;
+      safe.add(t.id);
+      for (const nb of neighborsOf(t.id)) safe.add(nb);
+    }
+    const mirrorOf = (id: number) => {
+      const t = TILES[id];
+      return TILES.find((q) => Math.abs(q.x + t.x) < 1e-6 && Math.abs(q.z + t.z) < 1e-6)?.id ?? id;
+    };
+    const cand = TILES.map((t) => t.id);
+    rng.shuffle(cand);
+    for (const id of cand) {
+      if (this.mineTiles.size >= config.mines.count) break;
+      const mid = mirrorOf(id);
+      if (this.mineTiles.has(id) || this.mineTiles.has(mid)) continue;
+      if (zoneSet.has(id) || zoneSet.has(mid) || safe.has(id) || safe.has(mid)) continue;
+      this.mineTiles.add(id);
+      this.armed.add(id);
+      if (mid !== id) {
+        this.mineTiles.add(mid);
+        this.armed.add(mid);
+      }
+    }
+  }
+
+  /** عدد الألغام المجاورة لبلاطة */
+  numberAt(id: number): number {
+    let c = 0;
+    for (const nb of neighborsOf(id)) if (this.mineTiles.has(nb)) c++;
+    return c;
+  }
+
+  addPoints(id: string, n: number) {
+    this.points.set(id, (this.points.get(id) ?? 0) + n);
+  }
+
+  roundPointsOf(id: string): number {
+    return this.points.get(id) ?? 0;
+  }
+
+  /** كشف البلاطة عند الوقوف عليها، أو تفجير اللغم */
+  private updateMines() {
+    for (const p of this.players) {
+      if (!p.alive) continue;
+      const t = tileAt(p.x, p.z);
+      if (!t) continue;
+      if (p.lastTile === t.id) continue;
+      p.lastTile = t.id;
+      if (this.mineNum[t.id] !== -1) continue;
+      if (this.armed.has(t.id)) this.explodeMine(t.id, p);
+      else {
+        this.mineNum[t.id] = this.numberAt(t.id);
+        this.emit({ type: 'reveal', x: t.x, z: t.z, s: this.mineNum[t.id] });
+      }
+    }
+  }
+
+  private explodeMine(tileId: number, p: SimPlayer) {
+    const t = TILES[tileId];
+    this.armed.delete(tileId);
+    this.mineNum[tileId] = 9;
+    let dx = p.x - t.x;
+    let dz = p.z - t.z;
+    let len = Math.hypot(dx, dz);
+    if (len < 0.05) {
+      // وقف في منتصف اللغم تمامًا: ارتدّ عكس اتجاه حركته، وإلا بعيدًا عن المركز
+      dx = -p.vx || -p.faceX || p.x || 1;
+      dz = -p.vz || -p.faceZ || p.z || 0;
+      len = Math.hypot(dx, dz) || 1;
+    }
+    p.vx = (dx / len) * config.mines.knockback;
+    p.vz = (dz / len) * config.mines.knockback;
+    p.vy = 7;
+    p.onGround = false;
+    p.stunUntil = this.t + config.mines.stunSec;
+    p.minesHit++;
+    p.lastTile = -1;
+    // إسقاط بلغم: من دفعك إلى اللغم يكافأ
+    const by = p.lastHitBy && this.t - p.lastHitAt <= config.mines.ambushWindowSec ? p.lastHitBy : null;
+    if (by) this.addPoints(by, config.mines.ambushBonus);
+    this.emit({ type: 'mine', x: t.x, z: t.z, id: p.id, by: by ?? undefined, s: config.mines.ambushWindowSec });
+  }
+
+  /** نقطة كل ثانية لمن يقف وحده في منطقة سيطرة */
+  private updateZones(dt: number) {
+    this.zoneAcc += dt;
+    if (this.zoneAcc < 1) return;
+    this.zoneAcc -= 1;
+    for (const z of this.zones) {
+      let owner: string | null = null;
+      let count = 0;
+      for (const p of this.players) {
+        if (!p.alive) continue;
+        const t = tileAt(p.x, p.z);
+        if (!t || t.id !== z.tile) continue;
+        count++;
+        owner = p.id;
+      }
+      if (count !== 1) owner = null;
+      if (owner) this.addPoints(owner, config.mines.zoneScorePerSec);
+      if (owner !== z.owner) {
+        z.owner = owner;
+        this.emit({ type: 'zone', id: owner ?? undefined, x: z.x, z: z.z });
+      }
+    }
   }
 
   get aliveCount(): number {
@@ -388,7 +530,11 @@ export class ArenaSim {
   step(dt: number) {
     if (dt <= 0) return;
     this.t += dt;
-    this.updateCollapse();
+    if (config.collapse.enabled) this.updateCollapse();
+    if (config.mines.enabled) {
+      this.updateMines();
+      this.updateZones(dt);
+    }
     this.updatePickups();
 
     for (const p of this.players) {
@@ -398,6 +544,7 @@ export class ArenaSim {
         this.useItem(p, p.wantItemSlot);
       }
       this.integrate(p, dt);
+      if (config.mines.enabled) this.clampInside(p);
     }
 
     this.resolveCollisions();
@@ -406,6 +553,14 @@ export class ArenaSim {
 
   private integrate(p: SimPlayer, dt: number) {
     const C = config.physics;
+
+    // شلل انفجار اللغم: لا تحكم (الزخم وحده يحرّكك)
+    if (this.t < p.stunUntil) {
+      p.inputX = 0;
+      p.inputZ = 0;
+      p.wantDash = false;
+      p.wantItem = false;
+    }
 
     // اندفاع
     if (p.wantDash) {
@@ -596,10 +751,40 @@ export class ArenaSim {
     }
   }
 
+  /** حاجز على شكل الحلبة نفسها (مثمّن): يمنع السقوط بدل أن يعاقب عليه */
+  private clampInside(p: SimPlayer) {
+    const pitch = config.arena.tileSize + config.arena.tileGap;
+    const half = (config.arena.gridSize - 1) / 2;
+    const cut = config.arena.cornerCut ?? 0;
+    const m = config.physics.radius * 0.8;
+    const ax = half * pitch + config.arena.tileSize / 2 - m; // الحد المستقيم
+    const diag = (2 * half - cut) * pitch + config.arena.tileSize / 2 - m; // الحد القطري
+    let hit = false;
+    if (p.x > ax) { p.x = ax; hit = true; } else if (p.x < -ax) { p.x = -ax; hit = true; }
+    if (p.z > ax) { p.z = ax; hit = true; } else if (p.z < -ax) { p.z = -ax; hit = true; }
+    const s2 = Math.abs(p.x) + Math.abs(p.z);
+    if (s2 > diag) {
+      const k = diag / s2;
+      p.x *= k;
+      p.z *= k;
+      hit = true;
+    }
+    if (hit) {
+      p.vx *= 0.35;
+      p.vz *= 0.35;
+      if (p.y < 0) {
+        p.y = 0;
+        p.vy = Math.max(0, p.vy);
+        p.onGround = true;
+      }
+    }
+  }
+
   private checkDeaths() {
     const dying: SimPlayer[] = [];
     for (const p of this.players) {
       if (!p.alive) continue;
+      if (config.mines.enabled) continue; // حقل الملوك: لا سقوط ولا موت
       if (p.y < config.physics.killY) {
         p.alive = false;
         p.deathTime = this.t;

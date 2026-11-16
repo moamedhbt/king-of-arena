@@ -602,7 +602,24 @@ export class Room {
     const survivors = sim.players.filter((p) => p.alive).map((p) => p.id);
 
     const groups: Array<{ ids: string[]; kind: 'survivor' | 'dead' }> = [];
-    if (survivors.length) groups.push({ ids: survivors, kind: 'survivor' });
+    if (config.mines.enabled) {
+      // حقل الملوك: الترتيب بنقاط السيطرة والإسقاط (تقاسم المركز عند التعادل)
+      const sorted = [...sim.players].sort(
+        (a, b) => sim.roundPointsOf(b.id) - sim.roundPointsOf(a.id) || b.kos - a.kos
+      );
+      let i2 = 0;
+      while (i2 < sorted.length) {
+        const pts = sim.roundPointsOf(sorted[i2].id);
+        const g = [sorted[i2].id];
+        let j = i2 + 1;
+        while (j < sorted.length && sim.roundPointsOf(sorted[j].id) === pts) {
+          g.push(sorted[j].id);
+          j++;
+        }
+        groups.push({ ids: g, kind: 'survivor' });
+        i2 = j;
+      }
+    } else if (survivors.length) groups.push({ ids: survivors, kind: 'survivor' });
     let i = 0;
     while (i < deadIds.length) {
       const t = deadIds[i].deathTime ?? 0;
@@ -637,7 +654,8 @@ export class Room {
       const kos = Math.min(config.scoring.koCap, sp?.kos ?? 0) * config.scoring.koBonus;
       const predictBonus =
         p.predicted && rankMap.get(p.predicted) === 1 ? config.scoring.predictBonus : 0;
-      const points = survival + kos + p.roundPuzzleBonus + predictBonus;
+      const fieldPoints = config.mines.enabled ? sim.roundPointsOf(p.id) : 0;
+      const points = survival + kos + p.roundPuzzleBonus + predictBonus + fieldPoints;
 
       p.roundRank = rank;
       p.roundSurvival = survival;
@@ -664,6 +682,11 @@ export class Room {
         totalScore: p.score,
         deathCause: p.deathCause,
         killedByName: p.killedByName,
+        field: fieldPoints,
+        fieldWhy: config.mines.enabled
+          ? `سيطرة وإسقاط: ${fieldPoints} نقطة` +
+            (sp && sp.minesHit ? ` · انفجر بك ${sp.minesHit} لغم` : '')
+          : undefined,
       });
     }
 
@@ -786,8 +809,12 @@ export class Room {
         if (sim.aliveCount <= 1) {
           this.arenaEndAt = Date.now() + config.phase.arenaEndDelay * 1000;
         } else if (sim.t >= config.phase.arenaMax) {
-          sim.triggerFinale();
-          this.arenaEndAt = Date.now() + (config.phase.finaleFallSec + 0.4) * 1000;
+          if (config.collapse.enabled) {
+            sim.triggerFinale();
+            this.arenaEndAt = Date.now() + (config.phase.finaleFallSec + 0.4) * 1000;
+          } else {
+            this.arenaEndAt = Date.now() + 250;
+          }
         }
       } else if (Date.now() >= this.arenaEndAt) {
         this.finishArena();
@@ -818,12 +845,17 @@ export class Room {
       fx: round3(p.faceX),
       fz: round3(p.faceZ),
       off: this.players.get(p.id)?.connected ? 0 : 1,
+      rp: sim.roundPointsOf(p.id),
     }));
+    const mn: Array<{ i: number; n: number }> = [];
+    for (let i = 0; i < sim.mineNum.length; i++) if (sim.mineNum[i] !== -1) mn.push({ i, n: sim.mineNum[i] });
     const msg = {
       t: Date.now(),
       tick: this.tickCount,
       players,
       tiles: sim.tileStatesString(),
+      mn,
+      zn: sim.zones.map((z, i) => ({ i, o: z.owner })),
       pk: sim.pickups.map((q) => ({ i: q.item, x: Math.round(q.x * 100) / 100, z: Math.round(q.z * 100) / 100 })),
     };
     this.broadcast('snap', msg);

@@ -3,6 +3,11 @@
  * البداية يجب أن يكون متساويًا (±5 نقاط مئوية عن المتوقع).
  */
 import { runBotRound } from './bots';
+import { config } from '../shared/src/index';
+
+// هذه المجموعة تختبر وضع «انهيار الأرضية» الكلاسيكي صراحةً (الوضع الافتراضي الآن هو حقل الملوك)
+config.collapse.enabled = true;
+config.mines.enabled = false;
 
 const TOL = 0.05;
 
