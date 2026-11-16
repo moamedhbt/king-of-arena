@@ -99,12 +99,12 @@ export class ArenaScene {
 
   private buildLights() {
     // إضاءة سماء/أرض ناعمة
-    const hemi = new THREE.HemisphereLight(0x9fd4ff, 0x2b1a12, 0.55);
+    const hemi = new THREE.HemisphereLight(0xa8d8ff, 0x3a2418, 0.42);
     this.scene.add(hemi);
 
     // ضوء رئيسي دافئ (غروب) مع ظلال ناعمة
-    const key = new THREE.DirectionalLight(0xffe9c4, 2.3);
-    key.position.set(16, 28, 12);
+    const key = new THREE.DirectionalLight(0xffe4bb, 3.1);
+    key.position.set(26, 20, 16);
     key.castShadow = true;
     key.shadow.mapSize.set(1024, 1024);
     const d = 28;
@@ -114,18 +114,20 @@ export class ArenaScene {
     key.shadow.camera.bottom = -d;
     key.shadow.camera.near = 1;
     key.shadow.camera.far = 90;
-    key.shadow.bias = -0.0009;
-    key.shadow.normalBias = 0.03;
+    key.shadow.bias = -0.0007;
+    key.shadow.normalBias = 0.035;
+    key.shadow.radius = 2.2;
+    key.shadow.camera.updateProjectionMatrix();
     this.scene.add(key);
     this.scene.add(key.target);
 
     // ضوء حافة بارد من الخلف
-    const rim = new THREE.DirectionalLight(0x58d8ff, 1.0);
+    const rim = new THREE.DirectionalLight(0x6ab6ff, 0.8);
     rim.position.set(-18, 12, -16);
     this.scene.add(rim);
 
     // إضاءة أرضية بنفسجية خفيفة تعطي عمقًا
-    const fill = new THREE.PointLight(0x7a5cff, 40, 60, 2);
+    const fill = new THREE.PointLight(0x7a5cff, 16, 60, 2);
     fill.position.set(0, -6, 0);
     this.scene.add(fill);
   }
@@ -141,11 +143,8 @@ export class ArenaScene {
     const stone = makeStone();
     const mat = new THREE.MeshStandardMaterial({
       map: stone.map,
-      emissiveMap: stone.emissive,
-      emissive: new THREE.Color(0xffb060),
-      emissiveIntensity: 0.55,
-      roughness: 0.82,
-      metalness: 0.04,
+      roughness: 0.78,
+      metalness: 0.05,
       color: 0xffffff,
     });
     this.tileMesh = new THREE.InstancedMesh(geo, mat, TILE_COUNT);
@@ -157,7 +156,8 @@ export class ArenaScene {
     for (let i = 0; i < TILE_COUNT; i++) {
       const t = TILES[i];
       const dark = (t.gx + t.gz) % 2 === 0;
-      this.color.setHex(dark ? 0xd7cdbc : 0xc2b7a4);
+      const v = 0.9 + ((Math.sin(i * 12.9898) * 43758.5453) % 1) * 0.2;
+      this.color.setHex(dark ? 0xf2ece0 : 0xdfd7c8).multiplyScalar(v);
       this.tileMesh.setColorAt(i, this.color);
       this.dummy.position.set(t.x, -config.arena.tileThickness / 2, t.z);
       this.dummy.rotation.set(0, 0, 0);
@@ -189,7 +189,7 @@ export class ArenaScene {
 
     const slab = new THREE.Mesh(
       new THREE.CylinderGeometry(slabR, slabR * 0.94, 1.6, 8),
-      new THREE.MeshStandardMaterial({ color: 0x6b5b4c, roughness: 0.95, metalness: 0.02 })
+      new THREE.MeshStandardMaterial({ color: 0x323a4d, roughness: 0.92, metalness: 0.06 })
     );
     slab.rotation.y = Math.PI / 8;
     slab.position.y = -config.arena.tileThickness / 2 - 0.85;
@@ -372,8 +372,9 @@ export class ArenaScene {
     sun.position.set(-46, 26, -78);
     this.containers.add(sun);
 
-    const torch = new THREE.PointLight(0xff9a45, 26, 34, 2);
-    torch.position.set(0, 5.2, 0);
+    // جمر خفيف من الأسفل فقط (لا يغسل الإضاءة)
+    const torch = new THREE.PointLight(0xff9a45, 7, 26, 2);
+    torch.position.set(0, -2.4, 0);
     this.containers.add(torch);
     this.torchLight = torch;
   }
@@ -458,8 +459,8 @@ export class ArenaScene {
     // نصف عرض الحلبة + الفجوة + هامش أمان
     const halfW = (config.arena.gridSize * (config.arena.tileSize + config.arena.tileGap)) / 2 + 1.2;
     const needed = (halfW * 1.06) / Math.tan(hFov / 2);
-    const dir = new THREE.Vector3(0, portrait ? 40 : 34, portrait ? 30 : 26).normalize();
-    const len = portrait ? Math.max(44, needed * 0.76) : Math.max(42, needed * 0.95);
+    const dir = new THREE.Vector3(0, portrait ? 30 : 28, portrait ? 44 : 34).normalize();
+    const len = portrait ? Math.max(46, needed * 0.72) : Math.max(40, needed * 0.92);
     this.basePos.copy(dir).multiplyScalar(len);
     this.camera.position.copy(this.basePos);
     this.camera.lookAt(0, 0, 0);
@@ -671,7 +672,8 @@ export class ArenaScene {
       f.scale.set(k, 1 + Math.sin(tsec * 13 + i) * 0.22, k);
       (f.material as THREE.MeshBasicMaterial).opacity = 0.7 + Math.sin(tsec * 11 + i) * 0.15;
     }
-    if (this.torchLight) this.torchLight.intensity = 24 + Math.sin(tsec * 8) * 4;
+    if (this.torchLight) this.torchLight.intensity = 6 + Math.sin(tsec * 8) * 1.5;
+
 
     this.updateCamera(net, dt);
     this.renderer.render(this.scene, this.camera);
@@ -708,6 +710,7 @@ export class ArenaScene {
   }
 
   private adaptQuality(dt: number) {
+    if (typeof location !== 'undefined' && /q=(high|1)/.test(location.search)) return;
     this.frameAcc += dt;
     this.frameCount++;
     if (this.frameCount < 90) return;
@@ -977,7 +980,8 @@ export class ArenaScene {
 
       if (st === 0) {
         const dark = (t.gx + t.gz) % 2 === 0;
-        this.color.setHex(dark ? 0xd7cdbc : 0xc2b7a4);
+        const vv = 0.9 + ((Math.sin(i * 12.9898) * 43758.5453) % 1) * 0.2;
+        this.color.setHex(dark ? 0xf2ece0 : 0xdfd7c8).multiplyScalar(vv);
         this.tileMesh.setColorAt(i, this.color);
         if (this.tileMesh.instanceColor) this.tileMesh.instanceColor.needsUpdate = true;
       }
@@ -1080,6 +1084,20 @@ function makeStone(): { map: THREE.Texture; emissive: THREE.Texture } {
   eg.arc(S / 2, S / 2, 6, 0, Math.PI * 2);
   eg.fill();
 
+  // نقش النقش على الخريطة الأساسية (يتأثر بالإضاءة والظل)
+  const g2 = g;
+  g2.strokeStyle = 'rgba(255,196,110,0.9)';
+  g2.lineWidth = 3;
+  g2.strokeRect(28, 28, S - 56, S - 56);
+  g2.strokeStyle = 'rgba(255,175,80,0.55)';
+  g2.lineWidth = 2;
+  g2.beginPath();
+  g2.moveTo(S / 2, 40);
+  g2.lineTo(S - 40, S / 2);
+  g2.lineTo(S / 2, S - 40);
+  g2.lineTo(40, S / 2);
+  g2.closePath();
+  g2.stroke();
   const map = new THREE.CanvasTexture(c);
   map.colorSpace = THREE.SRGBColorSpace;
   const emissive = new THREE.CanvasTexture(e);

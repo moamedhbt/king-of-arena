@@ -85,6 +85,8 @@ export class Character {
       const src = o.material as THREE.MeshStandardMaterial;
       const mat = src.clone();
       if (mat.name === 'Main' || mat.name === 'Grey') mat.color = new THREE.Color(color);
+      mat.emissive = new THREE.Color(color).multiplyScalar(0.22);
+      mat.emissiveIntensity = 0.9;
       mat.roughness = 0.62;
       mat.metalness = 0.08;
       o.material = mat;
@@ -93,7 +95,7 @@ export class Character {
     // توحيد الطول: الشخصية بطول ~3 وحدات مهما كان حجم الملف
     const box = new THREE.Box3().setFromObject(model);
     const h = Math.max(0.001, box.max.y - box.min.y);
-    const k = 3.0 / h;
+    const k = 3.4 / h;
     model.scale.setScalar(k);
     model.position.y = -box.min.y * k;
     // توسيط أفقيًا
