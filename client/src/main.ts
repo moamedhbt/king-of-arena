@@ -3,6 +3,7 @@ import { ArenaScene } from './scene';
 import { Controls } from './input';
 import { AudioEngine } from './audio';
 import { UI } from './ui';
+import { preloadCharacter } from './character';
 import { t } from './i18n';
 import { config, type ItemId } from '@shared/index';
 
@@ -64,6 +65,14 @@ codeInput.addEventListener('keydown', (e) => {
 nameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') codeInput.focus();
 });
+
+// شاشة تحميل الشخصيات
+preloadCharacter((pct) => {
+  const el = document.getElementById('loadPct');
+  if (el) el.textContent = `${Math.round(pct * 100)}%`;
+})
+  .then(() => document.getElementById('loading')?.classList.add('hidden'))
+  .catch(() => document.getElementById('loading')?.classList.add('hidden'));
 
 // وضع الفحص ?debug=1
 ui.initDebug(new URLSearchParams(location.search).get('debug') === '1');
@@ -183,6 +192,7 @@ function onGameEvent(e: any) {
   const me = net.state.youId;
   switch (e.type) {
     case 'hit': {
+      scene.onHit(e.id);
       if (e.charged) {
         scene.burst(e.x ?? 0, e.z ?? 0, 22);
         scene.shake(0.9, 0.22);
@@ -204,9 +214,11 @@ function onGameEvent(e: any) {
     case 'fall':
       audio.sfx('collapse');
       break;
-    case 'dash':
+    case 'dash': {
+      scene.onDash(e.id);
       if (e.id !== me) audio.sfx('dash', 0.4);
       break;
+    }
     case 'pickup': {
       const it = (e.itemType ?? null) as ItemId | null;
       if (!it) break;

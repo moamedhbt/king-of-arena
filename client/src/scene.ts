@@ -1,12 +1,17 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { config, TILES, TILE_COUNT, PLAYER_COLORS } from '@shared/index';
 import type { Snap, SnapPlayer } from '@shared/index';
 import type { Net } from './net';
+import { Character, createCharacter, preloadCharacter } from './character';
 
 interface PlayerView {
   group: THREE.Group;
-  body: THREE.Mesh;
+  body: THREE.Mesh; // عنصر نائب خفي بعد تحميل الشخصية
   eyes: THREE.Group;
+  character: Character | null;
+  loading: boolean;
+  stunnedUntil: number;
   label: THREE.Sprite;
   ring: THREE.Mesh;
   shadow: THREE.Mesh; // ظل ثابت على البلاطة
@@ -35,6 +40,9 @@ export class ArenaScene {
   private warnAt = new Array<number>(TILE_COUNT).fill(-1);
   private fallAt = new Array<number>(TILE_COUNT).fill(-1);
   private dummy = new THREE.Object3D();
+  private clouds = new THREE.Group();
+  private braziers: THREE.Mesh[] = [];
+  private torchLight: THREE.PointLight | null = null;
   private color = new THREE.Color();
   private players = new Map<string, PlayerView>();
   private dust!: THREE.Points;
@@ -68,14 +76,20 @@ export class ArenaScene {
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     this.renderer.setClearColor(0x0a1226, 1);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
     this.scene.background = makeSkyTexture();
-    this.scene.fog = new THREE.Fog(0x0a1730, 70, 165);
+    this.scene.fog = new THREE.Fog(0x3a2038, 60, 170);
     this.scene.add(this.containers);
 
     this.buildLights();
     this.buildArena();
+    this.buildScenery();
     this.buildDust();
     this.buildSparks();
     this.buildPickups();
@@ -84,27 +98,66 @@ export class ArenaScene {
   }
 
   private buildLights() {
-    const hemi = new THREE.HemisphereLight(0xbfe9ff, 0x0a2030, 1.15);
+    // إضاءة سماء/أرض ناعمة
+    const hemi = new THREE.HemisphereLight(0x9fd4ff, 0x2b1a12, 0.55);
     this.scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 1.15);
-    dir.position.set(12, 30, 10);
-    this.scene.add(dir);
-    const rim = new THREE.DirectionalLight(0x16d3c4, 0.5);
-    rim.position.set(-14, 12, -18);
+
+    // ضوء رئيسي دافئ (غروب) مع ظلال ناعمة
+    const key = new THREE.DirectionalLight(0xffe9c4, 2.3);
+    key.position.set(16, 28, 12);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    const d = 28;
+    key.shadow.camera.left = -d;
+    key.shadow.camera.right = d;
+    key.shadow.camera.top = d;
+    key.shadow.camera.bottom = -d;
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = 90;
+    key.shadow.bias = -0.0009;
+    key.shadow.normalBias = 0.03;
+    this.scene.add(key);
+    this.scene.add(key.target);
+
+    // ضوء حافة بارد من الخلف
+    const rim = new THREE.DirectionalLight(0x58d8ff, 1.0);
+    rim.position.set(-18, 12, -16);
     this.scene.add(rim);
+
+    // إضاءة أرضية بنفسجية خفيفة تعطي عمقًا
+    const fill = new THREE.PointLight(0x7a5cff, 40, 60, 2);
+    fill.position.set(0, -6, 0);
+    this.scene.add(fill);
   }
 
   private buildArena() {
-    const geo = new THREE.BoxGeometry(config.arena.tileSize, config.arena.tileThickness, config.arena.tileSize);
-    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const geo = new RoundedBoxGeometry(
+      config.arena.tileSize,
+      config.arena.tileThickness,
+      config.arena.tileSize,
+      2,
+      0.16
+    );
+    const stone = makeStone();
+    const mat = new THREE.MeshStandardMaterial({
+      map: stone.map,
+      emissiveMap: stone.emissive,
+      emissive: new THREE.Color(0xffb060),
+      emissiveIntensity: 0.55,
+      roughness: 0.82,
+      metalness: 0.04,
+      color: 0xffffff,
+    });
     this.tileMesh = new THREE.InstancedMesh(geo, mat, TILE_COUNT);
     this.tileMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.tileMesh.frustumCulled = false;
+    this.tileMesh.receiveShadow = true;
+    this.tileMesh.castShadow = true;
 
     for (let i = 0; i < TILE_COUNT; i++) {
       const t = TILES[i];
       const dark = (t.gx + t.gz) % 2 === 0;
-      this.color.setHex(dark ? 0x35618f : 0x2b527d);
+      this.color.setHex(dark ? 0xd7cdbc : 0xc2b7a4);
       this.tileMesh.setColorAt(i, this.color);
       this.dummy.position.set(t.x, -config.arena.tileThickness / 2, t.z);
       this.dummy.rotation.set(0, 0, 0);
@@ -124,7 +177,7 @@ export class ArenaScene {
         0.08,
         8
       ),
-      new THREE.MeshBasicMaterial({ color: 0x36e6ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending })
+      new THREE.MeshBasicMaterial({ color: 0xff8f4a, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending })
     );
     gridGlow.rotation.y = Math.PI / 8;
     gridGlow.position.y = -0.16;
@@ -136,7 +189,7 @@ export class ArenaScene {
 
     const slab = new THREE.Mesh(
       new THREE.CylinderGeometry(slabR, slabR * 0.94, 1.6, 8),
-      new THREE.MeshLambertMaterial({ color: 0x0d1526 })
+      new THREE.MeshStandardMaterial({ color: 0x6b5b4c, roughness: 0.95, metalness: 0.02 })
     );
     slab.rotation.y = Math.PI / 8;
     slab.position.y = -config.arena.tileThickness / 2 - 0.85;
@@ -146,9 +199,9 @@ export class ArenaScene {
     const edge = new THREE.Mesh(
       new THREE.RingGeometry(slabR - 0.25, slabR + 0.12, 8, 1),
       new THREE.MeshBasicMaterial({
-        color: 0x2de1ff,
+        color: 0xffb168,
         transparent: true,
-        opacity: 0.85,
+        opacity: 0.7,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
@@ -163,9 +216,9 @@ export class ArenaScene {
     const glow = new THREE.Mesh(
       new THREE.CircleGeometry(slabR * 1.5, 48),
       new THREE.MeshBasicMaterial({
-        color: 0x1b6fa8,
+        color: 0xff7a3c,
         transparent: true,
-        opacity: 0.3,
+        opacity: 0.13,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       })
@@ -241,6 +294,90 @@ export class ArenaScene {
   }
 
   /** بيكابات الأدوات: جواهر متوهحة تدور وتطفو */
+  /** جزر السحب أسفل الحلبة + أعمدة حجرية ومشاعل حولها */
+  private buildScenery() {
+    const cloud = makeCloud();
+    const cloudMat = new THREE.MeshBasicMaterial({
+      map: cloud,
+      transparent: true,
+      opacity: 0.45,
+      color: 0xffd8bd,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const layers = [
+      { y: -14, r: 52, size: 110, op: 0.34 },
+      { y: -22, r: 80, size: 150, op: 0.4 },
+      { y: -32, r: 120, size: 210, op: 0.46 },
+    ];
+    for (const L of layers) {
+      const g = new THREE.Group();
+      for (let i = 0; i < 5; i++) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(L.size, L.size * 0.7), cloudMat.clone());
+        const mat = m.material as THREE.MeshBasicMaterial;
+        mat.opacity = L.op * (0.55 + Math.random() * 0.45);
+        m.rotation.x = -Math.PI / 2;
+        m.rotation.z = Math.random() * Math.PI;
+        const a = (i / 5) * Math.PI * 2;
+        m.position.set(Math.cos(a) * L.r * 0.5, L.y + (Math.random() - 0.5) * 3, Math.sin(a) * L.r * 0.5);
+        g.add(m);
+      }
+      this.clouds.add(g);
+    }
+    this.containers.add(this.clouds);
+
+    // أعمدة ومشاعل حول الحلبة
+    const extent = (config.arena.gridSize * (config.arena.tileSize + config.arena.tileGap)) / 2;
+    const R = extent + 3.2;
+    const colMat = new THREE.MeshStandardMaterial({ color: 0xcbbfae, roughness: 0.9, metalness: 0.02 });
+    const capMat = new THREE.MeshStandardMaterial({ color: 0xa89a88, roughness: 0.85 });
+    const flameMat = new THREE.MeshBasicMaterial({ color: 0xffb057, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const x = Math.cos(a) * R;
+      const z = Math.sin(a) * R;
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.78, 6.2, 12), colMat);
+      col.position.set(x, -0.4, z);
+      col.castShadow = true;
+      col.receiveShadow = true;
+      this.containers.add(col);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.5, 1.7), capMat);
+      cap.position.set(x, 2.95, z);
+      cap.castShadow = true;
+      this.containers.add(cap);
+      const brazier = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.32, 0.55, 10), capMat);
+      brazier.position.set(x, 3.45, z);
+      this.containers.add(brazier);
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.5, 8), flameMat);
+      flame.position.set(x, 4.35, z);
+      this.braziers.push(flame);
+      this.containers.add(flame);
+    }
+    // شمس الغروب: هالة متوهجة في الأفق
+    const sunC = document.createElement('canvas');
+    sunC.width = sunC.height = 128;
+    const sg = sunC.getContext('2d')!;
+    const sgGrad = sg.createRadialGradient(64, 64, 0, 64, 64, 64);
+    sgGrad.addColorStop(0, 'rgba(255,236,190,0.95)');
+    sgGrad.addColorStop(0.25, 'rgba(255,180,110,0.55)');
+    sgGrad.addColorStop(1, 'rgba(255,120,60,0)');
+    sg.fillStyle = sgGrad;
+    sg.fillRect(0, 0, 128, 128);
+    const sunTex = new THREE.CanvasTexture(sunC);
+    sunTex.colorSpace = THREE.SRGBColorSpace;
+    const sun = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: sunTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.9 })
+    );
+    sun.scale.set(60, 60, 1);
+    sun.position.set(-46, 26, -78);
+    this.containers.add(sun);
+
+    const torch = new THREE.PointLight(0xff9a45, 26, 34, 2);
+    torch.position.set(0, 5.2, 0);
+    this.containers.add(torch);
+    this.torchLight = torch;
+  }
+
   private buildPickups() {
     const geo = new THREE.OctahedronGeometry(0.8, 0);
     for (let i = 0; i < 10; i++) {
@@ -281,8 +418,8 @@ export class ArenaScene {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(this.dustPos, 3));
     const mat = new THREE.PointsMaterial({
-      color: 0xbfe9e0,
-      size: 0.6,
+      color: 0xe0cbb4,
+      size: 0.75,
       transparent: true,
       opacity: 0.55,
       depthWrite: false,
@@ -321,8 +458,8 @@ export class ArenaScene {
     // نصف عرض الحلبة + الفجوة + هامش أمان
     const halfW = (config.arena.gridSize * (config.arena.tileSize + config.arena.tileGap)) / 2 + 1.2;
     const needed = (halfW * 1.06) / Math.tan(hFov / 2);
-    const dir = new THREE.Vector3(0, portrait ? 50 : 34, portrait ? 38 : 26).normalize();
-    const len = Math.max(portrait ? 62.8 : 42.8, needed);
+    const dir = new THREE.Vector3(0, portrait ? 40 : 34, portrait ? 30 : 26).normalize();
+    const len = portrait ? Math.max(44, needed * 0.76) : Math.max(42, needed * 0.95);
     this.basePos.copy(dir).multiplyScalar(len);
     this.camera.position.copy(this.basePos);
     this.camera.lookAt(0, 0, 0);
@@ -430,6 +567,9 @@ export class ArenaScene {
       group,
       body,
       eyes,
+      character: null,
+      loading: false,
+      stunnedUntil: 0,
       label,
       ring,
       shadow,
@@ -446,6 +586,21 @@ export class ArenaScene {
       color,
     };
     this.players.set(id, view);
+    // تحميل الشخصية المجسّمة (مرة واحدة للجميع) ثم إخفاء العنصر النائب
+    if (!view.loading) {
+      view.loading = true;
+      createCharacter(color)
+        .then((ch) => {
+          if (!this.players.has(id)) return;
+          view.character = ch;
+          view.group.add(ch.root);
+          body.visible = false;
+          eyes.visible = false;
+        })
+        .catch(() => {
+          /* يبقى العنصر النائب إن فشل التحميل */
+        });
+    }
     return view;
   }
 
@@ -454,6 +609,25 @@ export class ArenaScene {
     (v.ring.material as THREE.MeshBasicMaterial).color.set(color);
     v.color = color;
   }
+
+  /** إصابة: توقّف مؤقت وحركة تلقّي الضربة */
+  onHit(id?: string) {
+    if (!id) return;
+    const v = this.players.get(id);
+    if (!v) return;
+    v.stunnedUntil = performance.now() + 480;
+    v.character?.play('hit', 0.08);
+  }
+
+  /** اندفاع: حركة لكمة + ركلة في زاوية الرؤية */
+  onDash(id?: string) {
+    if (!id) return;
+    this.players.get(id)?.character?.play('dash', 0.08);
+    if (this.net0?.state.youId === id) this.fovKick = 1;
+  }
+
+  private net0: Net | null = null;
+  private fovKick = 0;
 
   shake(mag = 0.6, sec = config.ui.shakeSec) {
     this.shakeMag = Math.max(this.shakeMag, mag);
@@ -470,6 +644,7 @@ export class ArenaScene {
 
   /** يُستدعى كل إطار */
   update(net: Net, dt: number) {
+    this.net0 = net;
     const now = performance.now();
     const serverNow = net.serverNow() - config.net.interpDelayMs;
 
@@ -487,8 +662,49 @@ export class ArenaScene {
     this.updateSparks(dt);
     this.applyShake(now);
 
+    // سحب تنجرف + لهب يرتجف
+    this.clouds.rotation.y += dt * 0.012;
+    const tsec = now * 0.001;
+    for (let i = 0; i < this.braziers.length; i++) {
+      const f = this.braziers[i];
+      const k = 1 + Math.sin(tsec * 9 + i * 1.7) * 0.14;
+      f.scale.set(k, 1 + Math.sin(tsec * 13 + i) * 0.22, k);
+      (f.material as THREE.MeshBasicMaterial).opacity = 0.7 + Math.sin(tsec * 11 + i) * 0.15;
+    }
+    if (this.torchLight) this.torchLight.intensity = 24 + Math.sin(tsec * 8) * 4;
+
+    this.updateCamera(net, dt);
     this.renderer.render(this.scene, this.camera);
     this.adaptQuality(dt);
+  }
+
+  /** كاميرا مخمّدة تتبع مركز اللاعبين، وتزيد زاوية الرؤية عند الاندفاع */
+  private updateCamera(net: Net, dt: number) {
+    const latest = net.snaps.length ? net.snaps[net.snaps.length - 1] : null;
+    let cx = 0;
+    let cz = 0;
+    let n = 0;
+    for (const p of latest?.players ?? []) {
+      if (p.a !== 1) continue;
+      cx += p.x;
+      cz += p.z;
+      n++;
+    }
+    if (n) {
+      cx /= n;
+      cz /= n;
+    }
+    const target = this.basePos.clone().add(new THREE.Vector3(cx * 0.18, 0, cz * 0.14));
+    const k = 1 - Math.exp(-dt * 3.2);
+    this.camera.position.lerp(target, k);
+    this.camera.lookAt(cx * 0.22, 0.6, cz * 0.18);
+
+    this.fovKick = Math.max(0, this.fovKick - dt * 2.6);
+    const fov = 55 + this.fovKick * 9;
+    if (Math.abs(this.camera.fov - fov) > 0.01) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   private adaptQuality(dt: number) {
@@ -573,21 +789,43 @@ export class ArenaScene {
         target.y += (pos.y - target.y) * k;
         target.z += (pos.z - target.z) * k;
       }
+      // اتجاه الشخصية نحو حركتها
+      if (pos.a !== 0) {
+        const ang = Math.atan2(pos.fx || 0, pos.fz || 1);
+        let cur = view.group.rotation.y;
+        let diff = ang - cur;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        view.group.rotation.y = cur + diff * Math.min(1, dt * 10);
+      }
+
+      // الشخصية المجسّمة
+      const moved = Math.hypot(pos.x - view.lastX, pos.z - view.lastZ);
+      const speed = moved / Math.max(0.0016, dt);
+      view.lastX = pos.x;
+      view.lastZ = pos.z;
+      if (view.character) {
+        view.character.update(dt, {
+          speed,
+          y: pos.y,
+          alive: pos.a !== 0,
+          stunnedUntil: view.stunnedUntil,
+          now: performance.now(),
+        });
+      }
+
       if (pos.a === 0) {
-        // سقوط اللاعب
-        view.group.position.y -= dt * 26;
-        view.body.scale.setScalar(Math.max(0.01, view.body.scale.x - dt * 0.5));
+        view.group.position.y -= dt * 6;
         view.ring.visible = false;
+        view.body.visible = false;
         view.eyes.visible = false;
       } else {
         view.ring.visible = true;
-        view.eyes.visible = true;
-        view.body.scale.setScalar(1);
-        // العيون نحو الحركة
-        const ang = Math.atan2(pos.fx || 0, pos.fz || 1);
-        view.eyes.rotation.y += (ang - view.eyes.rotation.y) * Math.min(1, dt * 12);
-        const bob = Math.sin(performance.now() * 0.004 + idx) * 0.05;
-        view.body.position.y = config.physics.radius + bob;
+        if (!view.character) {
+          view.eyes.visible = true;
+          const ang2 = Math.atan2(pos.fx || 0, pos.fz || 1);
+          view.eyes.rotation.y += (ang2 - view.eyes.rotation.y) * Math.min(1, dt * 12);
+        }
       }
       const me = net.state.youId === id;
       (view.ring.material as THREE.MeshBasicMaterial).opacity = me ? 0.85 : 0.35;
@@ -670,6 +908,7 @@ export class ArenaScene {
         if (st === 1 && this.warnAt[i] < 0) this.warnAt[i] = now;
         if (st === 2 && this.fallAt[i] < 0) {
           this.fallAt[i] = now;
+          this.spawnDust(TILES[i].x, TILES[i].z, 12);
           this.spawnDust(TILES[i].x, TILES[i].z, 6);
         }
         if (st === 0) {
@@ -738,7 +977,7 @@ export class ArenaScene {
 
       if (st === 0) {
         const dark = (t.gx + t.gz) % 2 === 0;
-        this.color.setHex(dark ? 0x35618f : 0x2b527d);
+        this.color.setHex(dark ? 0xd7cdbc : 0xc2b7a4);
         this.tileMesh.setColorAt(i, this.color);
         if (this.tileMesh.instanceColor) this.tileMesh.instanceColor.needsUpdate = true;
       }
@@ -788,16 +1027,103 @@ export class ArenaScene {
 }
 
 /** سماء متدرّجة مولّدة بالكامل (بلا صور خارجية) */
+/** حجر منقوش: نسيج رمادي مبقّع + خطوط نقش مضيئة */
+function makeStone(): { map: THREE.Texture; emissive: THREE.Texture } {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#b9b2a6';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 2600; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const r = Math.random() * 7 + 1;
+    const v = 150 + Math.random() * 85;
+    g.fillStyle = `rgba(${v},${v - 6},${v - 18},${0.05 + Math.random() * 0.12})`;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  // حدّ مشطوف (إضاءة من الأعلى، ظل من الأسفل)
+  const bev = 16;
+  const grad = g.createLinearGradient(0, 0, 0, S);
+  grad.addColorStop(0, 'rgba(255,255,255,0.35)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.32)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  g.strokeStyle = 'rgba(40,32,24,0.55)';
+  g.lineWidth = bev;
+  g.strokeRect(bev / 2, bev / 2, S - bev, S - bev);
+
+  // خريطة النقش المضيء (خطوط ذهبية)
+  const e = document.createElement('canvas');
+  e.width = e.height = S;
+  const eg = e.getContext('2d')!;
+  eg.fillStyle = '#000';
+  eg.fillRect(0, 0, S, S);
+  eg.strokeStyle = 'rgba(255,190,90,0.95)';
+  eg.lineWidth = 3;
+  eg.strokeRect(28, 28, S - 56, S - 56);
+  eg.strokeStyle = 'rgba(255,170,70,0.6)';
+  eg.lineWidth = 2;
+  eg.beginPath();
+  eg.moveTo(S / 2, 40);
+  eg.lineTo(S - 40, S / 2);
+  eg.lineTo(S / 2, S - 40);
+  eg.lineTo(40, S / 2);
+  eg.closePath();
+  eg.stroke();
+  eg.fillStyle = 'rgba(255,200,110,0.8)';
+  eg.beginPath();
+  eg.arc(S / 2, S / 2, 6, 0, Math.PI * 2);
+  eg.fill();
+
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  const emissive = new THREE.CanvasTexture(e);
+  emissive.colorSpace = THREE.SRGBColorSpace;
+  return { map, emissive };
+}
+
+/** نسيج سحابة ناعم */
+function makeCloud(): THREE.Texture {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  g.clearRect(0, 0, S, S);
+  for (let i = 0; i < 26; i++) {
+    const x = 40 + Math.random() * (S - 80);
+    const y = 60 + Math.random() * (S - 120);
+    const r = 22 + Math.random() * 48;
+    const rg = g.createRadialGradient(x, y, 0, x, y, r);
+    rg.addColorStop(0, 'rgba(255,247,238,0.55)');
+    rg.addColorStop(1, 'rgba(255,240,230,0)');
+    g.fillStyle = rg;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function makeSkyTexture(): THREE.Texture {
   const c = document.createElement('canvas');
   c.width = 8;
   c.height = 256;
   const ctx = c.getContext('2d')!;
   const g = ctx.createLinearGradient(0, 0, 0, 256);
-  g.addColorStop(0, '#05070f');
-  g.addColorStop(0.45, '#0a1730');
-  g.addColorStop(0.75, '#123055');
-  g.addColorStop(1, '#0a1730');
+  g.addColorStop(0, '#0b0d24');
+  g.addColorStop(0.28, '#2c1a4e');
+  g.addColorStop(0.44, '#6d3a63');
+  g.addColorStop(0.52, '#c2554f');
+  g.addColorStop(0.58, '#f2925a');
+  g.addColorStop(0.63, '#7a3a3c');
+  g.addColorStop(1, '#150b16');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 8, 256);
   const tex = new THREE.CanvasTexture(c);
